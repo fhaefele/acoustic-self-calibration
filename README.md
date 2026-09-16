@@ -25,6 +25,6 @@ from acoustic_self_calibration import (
 )
 
 recording = generate_synthetic_recording(num_mics=12)
-wav_path, metadata_path = export_synthetic_dataset("tests/data", recording=recording)
+wav_path, metadata_path = export_synthetic_dataset("generated-data", recording=recording)
 result = calibrate_from_dataset(wav_path, metadata_path)
 ```
