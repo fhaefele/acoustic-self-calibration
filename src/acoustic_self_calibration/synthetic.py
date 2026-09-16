@@ -154,8 +154,13 @@ def generate_synthetic_recording(
         for mic_index in range(scene.microphone_positions.shape[0]):
             arrival_time = emission_time + distances[source_index, mic_index] / scene.speed_of_sound
             start = int(round(arrival_time * scene.sample_rate)) - pulse_reference
-            stop = start + len(scene.pulse)
-            audio[start:stop, mic_index] += gains[source_index, mic_index] * scene.pulse
+            pulse_start = 0
+            if start < 0:
+                pulse_start = -start
+                start = 0
+            stop = min(start + len(scene.pulse) - pulse_start, audio.shape[0])
+            pulse_stop = pulse_start + (stop - start)
+            audio[start:stop, mic_index] += gains[source_index, mic_index] * scene.pulse[pulse_start:pulse_stop]
 
     peak = np.max(np.abs(audio))
     if peak > 0.0:

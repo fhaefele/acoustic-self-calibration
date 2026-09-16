@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -43,6 +44,17 @@ def test_export_default_stem_matches_microphone_count(tmp_path: Path) -> None:
 
     assert wav_path.name == "synthetic_6_mic.wav"
     assert metadata_path.name == "synthetic_6_mic.json"
+
+
+def test_generate_synthetic_recording_handles_early_arrivals() -> None:
+    scene = generate_synthetic_scene()
+    scene = replace(scene, emission_times=scene.emission_times.copy())
+    scene.emission_times[0] = 0.0
+
+    recording = generate_synthetic_recording(scene=scene)
+
+    assert recording.audio.shape[1] == 12
+    assert np.max(np.abs(recording.audio)) > 0.0
 
 
 def test_calibration_recovers_geometry_from_generated_dataset(tmp_path: Path) -> None:

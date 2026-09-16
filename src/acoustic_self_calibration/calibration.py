@@ -188,6 +188,7 @@ def calibrate_from_distances(
     predicted = np.linalg.norm(sources[:, None, :] - microphones[None, :, :], axis=2)
     residual_rms = float(np.sqrt(np.mean((predicted - observed) ** 2)))
     microphones, sources = canonicalize_geometry(microphones, sources)
+    predicted = np.linalg.norm(sources[:, None, :] - microphones[None, :, :], axis=2)
     return CalibrationResult(
         microphone_positions=microphones,
         source_positions=sources,
