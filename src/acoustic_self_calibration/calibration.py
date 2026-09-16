@@ -93,7 +93,7 @@ def _arrival_samples_from_recording(recording: SyntheticRecording) -> FloatArray
 
     for source_index, emission_time in enumerate(recording.scene.emission_times):
         expected_start = int(round(emission_time * sample_rate))
-        search_start = max(0, expected_start)
+        search_start = max(0, expected_start - pulse_length)
         search_stop = min(recording.audio.shape[0], expected_start + max_delay_samples + pulse_length)
         for mic_index in range(recording.audio.shape[1]):
             segment = recording.audio[search_start:search_stop, mic_index]

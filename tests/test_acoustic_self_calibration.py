@@ -33,6 +33,13 @@ def test_export_and_load_synthetic_dataset(tmp_path: Path) -> None:
     assert recording.scene.microphone_positions.shape == (12, 3)
 
 
+def test_export_default_stem_matches_microphone_count(tmp_path: Path) -> None:
+    wav_path, metadata_path = export_synthetic_dataset(tmp_path, num_mics=6, seed=4)
+
+    assert wav_path.name == "synthetic_6_mic.wav"
+    assert metadata_path.name == "synthetic_6_mic.json"
+
+
 def test_calibration_recovers_geometry_from_generated_dataset(tmp_path: Path) -> None:
     recording = generate_synthetic_recording()
     wav_path, metadata_path = export_synthetic_dataset(tmp_path, recording=recording)

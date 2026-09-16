@@ -164,12 +164,13 @@ def export_synthetic_dataset(
     *,
     num_mics: int = 12,
     seed: int = 0,
-    stem: str = "synthetic_12_mic",
+    stem: str | None = None,
 ) -> tuple[Path, Path]:
     recording = recording or generate_synthetic_recording(num_mics=num_mics, seed=seed)
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
+    stem = stem or f"synthetic_{recording.scene.microphone_positions.shape[0]}_mic"
     wav_path = output_path / f"{stem}.wav"
     metadata_path = output_path / f"{stem}.json"
 
