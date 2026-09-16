@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from pathlib import Path
 
@@ -37,6 +38,16 @@ def test_export_and_load_synthetic_dataset(tmp_path: Path) -> None:
     assert recording.audio.ndim == 2
     assert recording.audio.shape[1] == 12
     assert recording.scene.microphone_positions.shape == (12, 3)
+
+
+def test_load_synthetic_dataset_rejects_channel_mismatch(tmp_path: Path) -> None:
+    wav_path, metadata_path = export_synthetic_dataset(tmp_path, seed=3)
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["microphone_positions"] = metadata["microphone_positions"][:-1]
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="channel count"):
+        load_synthetic_dataset(wav_path, metadata_path)
 
 
 def test_export_default_stem_matches_microphone_count(tmp_path: Path) -> None:
@@ -101,3 +112,18 @@ def test_calibrate_from_distances_requires_at_least_four_source_positions() -> N
 
     with pytest.raises(ValueError, match="At least four source positions"):
         calibrate_from_distances(distances)
+
+
+def test_canonicalize_geometry_rejects_collinear_anchor_microphones() -> None:
+    microphones = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [2.0, 0.0, 0.0],
+        ],
+        dtype=np.float64,
+    )
+    sources = np.array([[0.5, 0.5, 0.5]], dtype=np.float64)
+
+    with pytest.raises(ValueError, match="must not be collinear"):
+        canonicalize_geometry(microphones, sources)

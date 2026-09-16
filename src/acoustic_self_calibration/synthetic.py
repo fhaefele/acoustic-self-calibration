@@ -212,6 +212,9 @@ def load_synthetic_dataset(wav_path: str | Path, metadata_path: str | Path) -> S
     else:
         audio_array = audio.astype(np.float64)
 
+    if audio_array.ndim != 2 or audio_array.shape[1] != len(metadata["microphone_positions"]):
+        raise ValueError("WAV channel count does not match the number of microphone positions in metadata.")
+
     scene = SyntheticScene(
         microphone_positions=np.asarray(metadata["microphone_positions"], dtype=np.float64),
         source_positions=np.asarray(metadata["source_positions"], dtype=np.float64),

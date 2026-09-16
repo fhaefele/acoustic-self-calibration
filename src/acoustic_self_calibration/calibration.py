@@ -70,10 +70,13 @@ def canonicalize_geometry(
         microphones = microphones @ first_rotation.T
         sources = sources @ first_rotation.T
     elif mic1[0] < 0.0:
-        microphones[:, :2] *= -1.0
-        sources[:, :2] *= -1.0
+        half_turn = _rotation_matrix(np.array([0.0, 0.0, 1.0]), np.pi)
+        microphones = microphones @ half_turn.T
+        sources = sources @ half_turn.T
 
     mic2 = microphones[2]
+    if np.hypot(mic2[1], mic2[2]) < 1e-12:
+        raise ValueError("The first three microphone anchors must not be collinear.")
     x_rotation = -np.arctan2(mic2[2], mic2[1])
     second_rotation = _rotation_matrix(np.array([1.0, 0.0, 0.0]), x_rotation)
     microphones = microphones @ second_rotation.T
