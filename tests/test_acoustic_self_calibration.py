@@ -3,8 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pytest
 
-from acoustic_self_calibration.calibration import calibrate_from_dataset, canonicalize_geometry
+from acoustic_self_calibration.calibration import (
+    calibrate_from_dataset,
+    calibrate_from_distances,
+    canonicalize_geometry,
+)
 from acoustic_self_calibration.synthetic import (
     export_synthetic_dataset,
     generate_synthetic_recording,
@@ -70,3 +75,17 @@ def test_calibration_recovers_geometry_from_checked_in_fixture() -> None:
     assert result.residual_rms < 0.05
     assert np.sqrt(np.mean((result.microphone_positions - truth_mics) ** 2)) < 0.35
     assert np.sqrt(np.mean((result.source_positions - truth_sources) ** 2)) < 0.35
+
+
+def test_calibrate_from_distances_requires_at_least_four_microphones() -> None:
+    distances = np.ones((8, 3), dtype=np.float64)
+
+    with pytest.raises(ValueError, match="At least four microphones"):
+        calibrate_from_distances(distances)
+
+
+def test_calibrate_from_distances_requires_at_least_four_source_positions() -> None:
+    distances = np.ones((3, 12), dtype=np.float64)
+
+    with pytest.raises(ValueError, match="At least four source positions"):
+        calibrate_from_distances(distances)

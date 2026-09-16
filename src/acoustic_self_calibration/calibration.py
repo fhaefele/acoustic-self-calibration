@@ -46,8 +46,16 @@ def canonicalize_geometry(
     microphone_positions: FloatArray,
     source_positions: FloatArray,
 ) -> tuple[FloatArray, FloatArray]:
-    microphones = np.asarray(microphone_positions, dtype=np.float64) - microphone_positions[0]
-    sources = np.asarray(source_positions, dtype=np.float64) - microphone_positions[0]
+    microphones = np.asarray(microphone_positions, dtype=np.float64)
+    sources = np.asarray(source_positions, dtype=np.float64)
+    if microphones.ndim != 2 or microphones.shape[1] != 3 or microphones.shape[0] < 3:
+        raise ValueError("At least three 3D microphone positions are required to canonicalize geometry.")
+    if sources.ndim != 2 or sources.shape[1] != 3:
+        raise ValueError("Source positions must be a two-dimensional array with shape (n, 3).")
+
+    origin = microphones[0].copy()
+    microphones = microphones - origin
+    sources = sources - origin
 
     mic1 = microphones[1]
     mic1_norm = np.linalg.norm(mic1)
@@ -176,9 +184,9 @@ def calibrate_from_distances(
     )
 
     microphones, sources = _unpack_geometry(optimization.x, num_mics=num_mics, num_sources=num_sources)
-    microphones, sources = canonicalize_geometry(microphones, sources)
     predicted = np.linalg.norm(sources[:, None, :] - microphones[None, :, :], axis=2)
     residual_rms = float(np.sqrt(np.mean((predicted - observed) ** 2)))
+    microphones, sources = canonicalize_geometry(microphones, sources)
     return CalibrationResult(
         microphone_positions=microphones,
         source_positions=sources,
