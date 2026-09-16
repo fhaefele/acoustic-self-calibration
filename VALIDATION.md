@@ -1,6 +1,6 @@
 # Synthetic audio validation
 
-Validated on 2026-09-16 with the public `calibrate_audio(...)` API.
+Validated on 2026-09-16 with the public `calibrate_audio(...)` API and extended in the WAV workflow PR with `calibrate_wav(...)`.
 
 This benchmark is end-to-end. It does **not** feed ideal geometric TDOAs into the solver. Each run:
 
@@ -46,6 +46,25 @@ All runs reported optimizer success.
 - motion prior: 3 m/s velocity-change sigma,
 - waveform noise standard deviation: `1e-5` in normalized pressure units.
 
+## WAV workflow regression
+
+The automated suite also writes the 8-microphone rendered scene to a PCM16 multichannel WAV file and runs the public `calibrate_wav(...)` path with Laplace uncertainty enabled. The test checks:
+
+- WAV decoding and integer-to-float normalization,
+- full audio -> pairwise TDOA -> MAP calibration,
+- microphone RMS position error below 0.10 m,
+- source RMS trajectory error below 0.10 m,
+- finite microphone-position standard deviations,
+- finite source-position standard deviations with the same `(frames, 3)` shape as the recovered trajectory.
+
+Separate decoder tests exercise PCM16, true packed PCM24, PCM32, and float32 WAV files.
+
+## Laplace uncertainty
+
+The solver partitions the final MAP Hessian into global parameters and source states. Microphone/global marginal covariance is obtained with the source block eliminated through a Schur complement. Source-state marginal variances then use the corresponding block-inverse identity, so source standard deviations include coupling to uncertain microphone geometry and enabled nuisance parameters.
+
+These are local posterior standard deviations in the solver's gauge-fixed coordinate frame. They quantify curvature of the fitted model near the MAP solution; they do not capture multimodal ambiguity or model mismatch such as unmodeled room reflections.
+
 ## Other automated checks
 
 The test suite also covers:
@@ -55,7 +74,8 @@ The test suite also covers:
 - pairwise measurement-graph consistency,
 - known-baseline sound-speed estimation,
 - rejection of unanchored sound-speed estimation,
-- Laplace microphone-position uncertainty,
+- marginalized microphone and source-position Laplace uncertainty,
+- NPZ, JSON, microphone CSV, and trajectory CSV exports,
 - moving-source rendering and source directivity,
 - GCC-PHAT delay sign and magnitude.
 

@@ -28,7 +28,7 @@ class DistancePrior:
 
 @dataclass(frozen=True)
 class BayesianCalibrationResult:
-    """MAP estimate plus a local Laplace approximation for global parameters."""
+    """MAP estimate plus a local Laplace approximation."""
 
     microphone_positions: np.ndarray
     source_positions: np.ndarray
@@ -36,6 +36,7 @@ class BayesianCalibrationResult:
     clock_offsets_s: np.ndarray
     clock_drifts: np.ndarray
     microphone_position_std_m: np.ndarray | None
+    source_position_std_m: np.ndarray | None
     speed_of_sound_std: float | None
     clock_offset_std_s: np.ndarray | None
     clock_drift_std: np.ndarray | None
@@ -395,6 +396,7 @@ def calibrate_bayesian(
     raw = normalized * sigma
 
     microphone_std = None
+    source_std = None
     c_std = None
     offset_std = None
     drift_std = None
@@ -409,13 +411,29 @@ def calibrate_bayesian(
             ]
         )
         hgg = hessian[np.ix_(global_indices, global_indices)]
+        hgq = None
+        hqq_inverse = None
         if source_indices.size:
             hgq = hessian[np.ix_(global_indices, source_indices)]
             hqq = hessian[np.ix_(source_indices, source_indices)]
-            information = hgg - hgq @ np.linalg.pinv(hqq, rcond=1e-10) @ hgq.T
+            hqq_inverse = np.linalg.pinv(hqq, rcond=1e-10)
+            information = hgg - hgq @ hqq_inverse @ hgq.T
         else:
             information = hgg
-        diagonal = np.clip(np.diag(np.linalg.pinv(information, rcond=1e-10)), 0.0, np.inf)
+        global_covariance = np.linalg.pinv(information, rcond=1e-10)
+        diagonal = np.clip(np.diag(global_covariance), 0.0, np.inf)
+
+        if source_indices.size and hgq is not None and hqq_inverse is not None:
+            coupling = hqq_inverse @ hgq.T
+            source_variance = np.diag(hqq_inverse) + np.einsum(
+                "ij,jk,ik->i",
+                coupling,
+                global_covariance,
+                coupling,
+                optimize=True,
+            )
+            source_std = np.sqrt(np.clip(source_variance, 0.0, np.inf)).reshape(frame_count, 3)
+
         microphone_std = np.zeros((mic_count, 3))
         for microphone in range(1, mic_count):
             for local_index, parameter_index in enumerate(_mic_parameter_indices(microphone)):
@@ -452,6 +470,7 @@ def calibrate_bayesian(
         clock_offsets_s=offsets,
         clock_drifts=drifts,
         microphone_position_std_m=microphone_std,
+        source_position_std_m=source_std,
         speed_of_sound_std=c_std,
         clock_offset_std_s=offset_std,
         clock_drift_std=drift_std,
