@@ -1,7 +1,10 @@
+from pathlib import Path
+
 import numpy as np
 import pytest
+from scipy.io import wavfile
 
-from acoustic_self_calibration import calibrate_audio
+from acoustic_self_calibration import calibrate_audio, calibrate_wav
 from acoustic_self_calibration.geometry import apply_rigid, rigid_align, rms_position_error
 from acoustic_self_calibration.simulation import random_microphone_array, render_moving_source
 
@@ -83,3 +86,46 @@ def test_general_audio_pipeline_self_calibrates_rendered_cardioid_source(microph
     assert rms_position_error(aligned_microphones, microphones) < 0.08
     assert rms_position_error(aligned_source, true_source) < 0.08
     assert result.calibration.rms_tdoa_residual_s < 30e-6
+
+
+def test_pcm16_wav_pipeline_returns_joint_position_uncertainty(tmp_path: Path) -> None:
+    sample_rate, microphones, key_times, source_positions, audio = _cardioid_scene(8)
+    path = tmp_path / "moving_source.wav"
+    scaled = audio / max(float(np.max(np.abs(audio))), 1e-12)
+    wavfile.write(path, sample_rate, np.round(0.95 * scaled * 32767.0).astype(np.int16))
+
+    result = calibrate_wav(
+        path,
+        frame_size=512,
+        hop_size=8192,
+        max_tau_s=0.025,
+        gcc_interp=16,
+        pair_mode="redundant",
+        reference_count=2,
+        motion_velocity_change_sigma_mps=3.0,
+        likelihood="cauchy",
+        max_nfev=300,
+        compute_laplace_uncertainty=True,
+    )
+
+    true_source = np.column_stack(
+        [
+            np.interp(result.frame_times_s, key_times, source_positions[:, dimension])
+            for dimension in range(3)
+        ]
+    )
+    aligned_microphones, rotation, translation = rigid_align(
+        result.calibration.microphone_positions,
+        microphones,
+    )
+    aligned_source = apply_rigid(result.calibration.source_positions, rotation, translation)
+
+    assert result.calibration.success
+    assert rms_position_error(aligned_microphones, microphones) < 0.10
+    assert rms_position_error(aligned_source, true_source) < 0.10
+    assert result.calibration.microphone_position_std_m is not None
+    assert result.calibration.source_position_std_m is not None
+    assert (
+        result.calibration.source_position_std_m.shape == result.calibration.source_positions.shape
+    )
+    assert np.isfinite(result.calibration.source_position_std_m).all()

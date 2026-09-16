@@ -48,6 +48,10 @@ def test_bayesian_map_recovers_geometry_with_clock_offsets():
     assert np.sqrt(np.mean((result.clock_offsets_s[1:] - offsets[1:]) ** 2)) < 15e-6
     assert result.microphone_position_std_m is not None
     assert np.isfinite(result.microphone_position_std_m).all()
+    assert result.source_position_std_m is not None
+    assert result.source_position_std_m.shape == src.shape
+    assert np.isfinite(result.source_position_std_m).all()
+    assert np.all(result.source_position_std_m >= 0.0)
 
 
 def test_sound_speed_requires_metric_anchor():
@@ -110,6 +114,7 @@ def test_bayesian_supports_requested_array_sizes(mic_count):
     )
     assert result.success
     assert result.rms_tdoa_residual_s < 1e-8
+    assert result.source_position_std_m is None
 
 
 def test_pairwise_measurement_graph_matches_reference_solution():

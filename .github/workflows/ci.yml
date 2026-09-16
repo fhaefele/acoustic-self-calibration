@@ -38,6 +38,9 @@ jobs:
       - name: Sync project
         run: uv sync --all-groups --python "${{ matrix.python-version }}"
 
+      - name: CLI smoke test
+        run: uv run acoustic-selfcal --help
+
       - name: Ruff format check
         if: matrix.python-version == '3.12'
         run: uv run ruff format --check .
