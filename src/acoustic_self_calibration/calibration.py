@@ -8,7 +8,7 @@ from numpy.typing import NDArray
 from scipy.optimize import least_squares
 from scipy.signal import correlate
 
-from .synthetic import SyntheticRecording, load_synthetic_dataset
+from .synthetic import SyntheticRecording, load_synthetic_dataset, pulse_reference_sample
 
 FloatArray = NDArray[np.float64]
 
@@ -92,6 +92,7 @@ def canonicalize_geometry(
 def _arrival_samples_from_recording(recording: SyntheticRecording) -> FloatArray:
     pulse = recording.scene.pulse
     pulse_length = len(pulse)
+    pulse_reference = pulse_reference_sample(pulse)
     sample_rate = recording.scene.sample_rate
     max_delay_samples = int(np.ceil(3.0 / recording.scene.speed_of_sound * sample_rate))
     arrival_samples = np.zeros(
@@ -107,7 +108,7 @@ def _arrival_samples_from_recording(recording: SyntheticRecording) -> FloatArray
             segment = recording.audio[search_start:search_stop, mic_index]
             matched = correlate(segment, pulse, mode="valid")
             peak_offset = int(np.argmax(matched))
-            arrival_samples[source_index, mic_index] = search_start + peak_offset
+            arrival_samples[source_index, mic_index] = search_start + peak_offset + pulse_reference
     return arrival_samples
 
 

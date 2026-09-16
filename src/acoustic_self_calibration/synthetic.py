@@ -10,6 +10,7 @@ from scipy.io import wavfile
 from scipy.signal import chirp
 
 FloatArray = NDArray[np.float64]
+PCM_SCALE = float(np.iinfo(np.int16).max)
 
 
 @dataclass(frozen=True)
@@ -64,6 +65,10 @@ def _estimate_orientations(source_positions: FloatArray) -> FloatArray:
     if len(source_positions) > 1:
         deltas[-1] = source_positions[-1] - source_positions[-2]
     return _unit_vectors(deltas)
+
+
+def pulse_reference_sample(pulse: FloatArray) -> int:
+    return int(np.argmax(np.abs(pulse)))
 
 
 def make_excitation_pulse(
@@ -143,11 +148,12 @@ def generate_synthetic_recording(
     max_arrival_time = np.max(scene.emission_times[:, None] + distances / scene.speed_of_sound)
     sample_count = int(np.ceil((max_arrival_time + 0.04) * scene.sample_rate)) + len(scene.pulse)
     audio = np.zeros((sample_count, scene.microphone_positions.shape[0]), dtype=np.float64)
+    pulse_reference = pulse_reference_sample(scene.pulse)
 
     for source_index, emission_time in enumerate(scene.emission_times):
         for mic_index in range(scene.microphone_positions.shape[0]):
             arrival_time = emission_time + distances[source_index, mic_index] / scene.speed_of_sound
-            start = int(round(arrival_time * scene.sample_rate))
+            start = int(round(arrival_time * scene.sample_rate)) - pulse_reference
             stop = start + len(scene.pulse)
             audio[start:stop, mic_index] += gains[source_index, mic_index] * scene.pulse
 
@@ -175,7 +181,7 @@ def export_synthetic_dataset(
     metadata_path = output_path / f"{stem}.json"
 
     wav_data = np.clip(recording.audio, -1.0, 1.0)
-    wavfile.write(wav_path, recording.scene.sample_rate, np.round(wav_data * 32767.0).astype(np.int16))
+    wavfile.write(wav_path, recording.scene.sample_rate, np.round(wav_data * PCM_SCALE).astype(np.int16))
 
     metadata = {
         "sample_rate": recording.scene.sample_rate,
@@ -197,7 +203,7 @@ def load_synthetic_dataset(wav_path: str | Path, metadata_path: str | Path) -> S
         raise ValueError("Sample rate in WAV file does not match metadata.")
 
     if np.issubdtype(audio.dtype, np.integer):
-        audio_array = audio.astype(np.float64) / np.iinfo(audio.dtype).max
+        audio_array = np.clip(audio.astype(np.float64) / PCM_SCALE, -1.0, 1.0)
     else:
         audio_array = audio.astype(np.float64)
 
