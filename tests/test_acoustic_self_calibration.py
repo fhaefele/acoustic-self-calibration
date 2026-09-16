@@ -8,9 +8,11 @@ import numpy as np
 import pytest
 
 from acoustic_self_calibration.calibration import (
-    calibrate_from_dataset,
+    calibrate_from_arrival_times,
+    calibrate_from_audio,
     calibrate_from_distances,
     canonicalize_geometry,
+    detect_arrival_times,
 )
 from acoustic_self_calibration.synthetic import (
     export_synthetic_dataset,
@@ -68,36 +70,88 @@ def test_generate_synthetic_recording_handles_early_arrivals() -> None:
     assert np.max(np.abs(recording.audio)) > 0.0
 
 
-def test_calibration_recovers_geometry_from_generated_dataset(tmp_path: Path) -> None:
+def _true_arrival_times(recording: object) -> np.ndarray:
+    scene = recording.scene
+    distances = np.linalg.norm(
+        scene.source_positions[:, None, :] - scene.microphone_positions[None, :, :],
+        axis=2,
+    )
+    return scene.emission_times[:, None] + distances / scene.speed_of_sound
+
+
+def test_detect_arrivals_does_not_need_emission_times_and_handles_inverted_channel() -> None:
+    recording = generate_synthetic_recording(seed=7)
+    audio = recording.audio.copy()
+    audio[:, 0] *= -1.0
+
+    detected = detect_arrival_times(audio, recording.scene.pulse, recording.scene.sample_rate, num_events=8)
+    truth = _true_arrival_times(recording)
+    sample_errors = (detected - truth) * recording.scene.sample_rate
+
+    assert np.sqrt(np.mean(sample_errors**2)) < 0.5
+
+
+def test_arrival_detection_has_no_hidden_three_meter_limit() -> None:
+    scene = generate_synthetic_scene(seed=2)
+    scene = replace(scene, microphone_positions=4.0 * scene.microphone_positions)
+    recording = generate_synthetic_recording(scene=scene)
+    truth = _true_arrival_times(recording)
+    distances = (truth - scene.emission_times[:, None]) * scene.speed_of_sound
+
+    assert np.max(distances) > 5.0
+    detected = detect_arrival_times(recording.audio, scene.pulse, scene.sample_rate, num_events=8)
+    sample_errors = (detected - truth) * scene.sample_rate
+    assert np.sqrt(np.mean(sample_errors**2)) < 0.5
+
+
+def test_tdoa_calibration_recovers_geometry_without_emission_times() -> None:
     recording = generate_synthetic_recording()
-    wav_path, metadata_path = export_synthetic_dataset(tmp_path, recording=recording)
-    result = calibrate_from_dataset(wav_path, metadata_path)
+    result = calibrate_from_audio(
+        recording.audio,
+        recording.scene.pulse,
+        recording.scene.sample_rate,
+        speed_of_sound=recording.scene.speed_of_sound,
+        num_events=8,
+    )
     truth_mics, truth_sources = canonicalize_geometry(
         recording.scene.microphone_positions,
         recording.scene.source_positions,
     )
 
     assert result.success
-    assert result.residual_rms < 0.05
-    assert np.sqrt(np.mean((result.microphone_positions - truth_mics) ** 2)) < 0.35
-    assert np.sqrt(np.mean((result.source_positions - truth_sources) ** 2)) < 0.35
+    assert result.jacobian_rank == result.parameter_count
+    assert result.residual_rms < 0.02
+    assert np.sqrt(np.mean((result.microphone_positions - truth_mics) ** 2)) < 0.2
+    assert np.sqrt(np.mean((result.source_positions - truth_sources) ** 2)) < 0.2
 
 
-def test_calibration_recovers_geometry_from_checked_in_fixture() -> None:
-    fixture_dir = Path(__file__).parent / "data"
-    wav_path = fixture_dir / "synthetic_12_mic_fixture.wav"
-    metadata_path = fixture_dir / "synthetic_12_mic_fixture.json"
-    recording = load_synthetic_dataset(wav_path, metadata_path)
-    result = calibrate_from_dataset(wav_path, metadata_path)
+def test_calibrate_from_arrival_times_is_invariant_to_unknown_emission_time() -> None:
+    recording = generate_synthetic_recording(seed=4)
+    arrivals = _true_arrival_times(recording)
+    offsets = np.linspace(0.2, 1.1, len(arrivals))[:, None]
+    result = calibrate_from_arrival_times(arrivals + offsets, speed_of_sound=recording.scene.speed_of_sound)
     truth_mics, truth_sources = canonicalize_geometry(
         recording.scene.microphone_positions,
         recording.scene.source_positions,
     )
 
-    assert result.success
-    assert result.residual_rms < 0.05
-    assert np.sqrt(np.mean((result.microphone_positions - truth_mics) ** 2)) < 0.35
-    assert np.sqrt(np.mean((result.source_positions - truth_sources) ** 2)) < 0.35
+    assert result.residual_rms < 1e-6
+    assert np.sqrt(np.mean((result.microphone_positions - truth_mics) ** 2)) < 1e-4
+    assert np.sqrt(np.mean((result.source_positions - truth_sources) ** 2)) < 1e-4
+
+
+def test_calibrate_from_distances_rejects_underdetermined_four_by_four_problem() -> None:
+    distances = np.ones((4, 4), dtype=np.float64)
+
+    with pytest.raises(ValueError, match="underdetermined"):
+        calibrate_from_distances(distances)
+
+
+def test_tdoa_calibration_rejects_underdetermined_geometry() -> None:
+    arrivals = np.ones((8, 4), dtype=np.float64)
+
+    with pytest.raises(ValueError, match="underdetermined"):
+        calibrate_from_arrival_times(arrivals)
 
 
 def test_calibrate_from_distances_requires_at_least_four_microphones() -> None:
