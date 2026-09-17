@@ -29,7 +29,29 @@ jobs:
 
           path = Path("src/acoustic_self_calibration/pipeline.py")
           text = path.read_text()
-          old = '''    selected: list[int] = []
+          start = text.index("    selected: list[int] = []\n")
+          end = text.index("\n    if len(selected) != microphone_count - 1:", start)
+          replacement = '''    star_candidates: list[tuple[float, list[int]]] = []
+          for reference in range(microphone_count):
+              star_columns: list[int] = []
+              for microphone in range(microphone_count):
+                  if microphone == reference:
+                      continue
+                  for column, (a, b) in enumerate(measurements.microphone_pairs):
+                      if {a, b} == {reference, microphone}:
+                          star_columns.append(column)
+                          break
+                  else:
+                      star_columns.clear()
+                      break
+              if len(star_columns) == microphone_count - 1:
+                  score = float(np.mean(values[:, star_columns] ** 2))
+                  star_candidates.append((score, star_columns))
+
+          selected: list[int] = (
+              min(star_candidates, key=lambda item: item[0])[1] if star_candidates else []
+          )
+          if not selected:
               edge_order = np.argsort(np.mean(values * values, axis=0), kind="stable")
               for column_value in edge_order:
                   column = int(column_value)
@@ -42,42 +64,8 @@ jobs:
                   selected.append(column)
                   if len(selected) == microphone_count - 1:
                       break
-          '''.replace("              ", "    ")
-          new = '''    star_candidates: list[tuple[float, list[int]]] = []
-              for reference in range(microphone_count):
-                  star_columns: list[int] = []
-                  for microphone in range(microphone_count):
-                      if microphone == reference:
-                          continue
-                      for column, (a, b) in enumerate(measurements.microphone_pairs):
-                          if {a, b} == {reference, microphone}:
-                              star_columns.append(column)
-                              break
-                      else:
-                          star_columns.clear()
-                          break
-                  if len(star_columns) == microphone_count - 1:
-                      score = float(np.mean(values[:, star_columns] ** 2))
-                      star_candidates.append((score, star_columns))
-
-              selected: list[int] = min(star_candidates, key=lambda item: item[0])[1] if star_candidates else []
-              if not selected:
-                  edge_order = np.argsort(np.mean(values * values, axis=0), kind="stable")
-                  for column_value in edge_order:
-                      column = int(column_value)
-                      a, b = measurements.microphone_pairs[column]
-                      root_a = find(a)
-                      root_b = find(b)
-                      if root_a == root_b:
-                          continue
-                      parent[root_b] = root_a
-                      selected.append(column)
-                      if len(selected) == microphone_count - 1:
-                          break
-          '''.replace("              ", "    ")
-          if old not in text:
-              raise SystemExit("expected minimum-spanning-tree block not found")
-          path.write_text(text.replace(old, new, 1))
+          '''
+          path.write_text(text[:start] + replacement + text[end:])
           PY
       - name: Run focused regression
         shell: bash
