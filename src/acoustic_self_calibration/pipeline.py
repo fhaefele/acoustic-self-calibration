@@ -96,6 +96,21 @@ def _preview_calibration(
     )
 
 
+def _hypothesis_selection_key(
+    result: BayesianCalibrationResult,
+) -> tuple[float, float]:
+    """Rank basins by broad data agreement before the robust posterior tie-break.
+
+    The Cauchy objective is intentionally forgiving of large residuals during MAP
+    refinement, but that makes it a poor sole score for choosing between geometry
+    hypotheses: a wrong basin can obtain a low robust cost by down-weighting the
+    measurements that disagree with it.  The standardized data RMS keeps those
+    measurements visible during basin selection; the robust posterior remains the
+    tie-break and the final optimization still uses the requested likelihood.
+    """
+    return result.normalized_data_rms, result.negative_log_posterior
+
+
 def _solve_from_event_multistarts(
     measurements: EventTDOAMeasurements,
     microphone_count: int,
@@ -111,7 +126,7 @@ def _solve_from_event_multistarts(
     max_nfev: int,
     compute_laplace_uncertainty: bool,
 ) -> BayesianCalibrationResult:
-    candidates: list[tuple[np.ndarray, np.ndarray]] = []
+    candidates: list[tuple[str, np.ndarray, np.ndarray]] = []
 
     # Use the low-rank TDOA structure as the primary initializer for smaller and
     # medium arrays. It generates several subset/extension hypotheses in the style
@@ -125,7 +140,8 @@ def _solve_from_event_multistarts(
         low_rank_count = 4 if microphone_count <= 12 else 2
         subset_count = 8 if microphone_count <= 12 else 4
         candidates.extend(
-            low_rank_initial_scene_hypotheses(
+            ("low_rank", microphones0, sources0)
+            for microphones0, sources0 in low_rank_initial_scene_hypotheses(
                 star,
                 30.0,
                 max_scene_hypotheses=low_rank_count,
@@ -138,7 +154,8 @@ def _solve_from_event_multistarts(
     scales = (1.0, 1.25, 1.6) if microphone_count <= 12 else (0.9, 1.2)
     try:
         candidates.extend(
-            event_initial_scene_candidates(
+            ("baseline", microphones0, sources0)
+            for microphones0, sources0 in event_initial_scene_candidates(
                 measurements.arrival_delays_s,
                 measurements.tdoa_s,
                 sigma,
@@ -151,8 +168,8 @@ def _solve_from_event_multistarts(
         pass
 
     preview_budget = min(max_nfev, 250)
-    previews: list[BayesianCalibrationResult] = []
-    for microphones0, sources0 in candidates:
+    previews: list[tuple[str, BayesianCalibrationResult]] = []
+    for family, microphones0, sources0 in candidates:
         try:
             preview = _preview_calibration(
                 measurements,
@@ -171,8 +188,10 @@ def _solve_from_event_multistarts(
             )
         except (ValueError, np.linalg.LinAlgError):
             continue
-        if np.isfinite(preview.negative_log_posterior):
-            previews.append(preview)
+        if np.isfinite(preview.negative_log_posterior) and np.isfinite(
+            preview.normalized_data_rms
+        ):
+            previews.append((family, preview))
 
     if not previews:
         return calibrate_bayesian(
@@ -192,12 +211,27 @@ def _solve_from_event_multistarts(
             compute_laplace_uncertainty=compute_laplace_uncertainty,
         )
 
-    # Fully refine the two strongest preview basins. Near the minimum microphone
-    # count, short previews can rank two nearby low-rank hypotheses differently
-    # from the converged posterior, so do not commit to a single basin too early.
-    previews.sort(key=lambda result: result.negative_log_posterior)
+    # Preserve initializer-family diversity through full refinement. In particular,
+    # several similar low-rank previews must not crowd a useful lower-bound/MDS
+    # basin out merely because the robust preview posterior is slightly smaller.
+    previews.sort(key=lambda item: _hypothesis_selection_key(item[1]))
+    finalist_target = 3 if microphone_count <= 12 else 2
+    seeds: list[BayesianCalibrationResult] = []
+    for family in ("low_rank", "baseline"):
+        for preview_family, preview in previews:
+            if preview_family == family:
+                seeds.append(preview)
+                break
+    for _, preview in previews:
+        if any(preview is seed for seed in seeds):
+            continue
+        seeds.append(preview)
+        if len(seeds) >= finalist_target:
+            break
+    seeds = seeds[:finalist_target]
+
     finalists: list[BayesianCalibrationResult] = []
-    for seed in previews[:2]:
+    for seed in seeds:
         finalist = calibrate_bayesian(
             measurements.tdoa_s,
             measurements.event_times_s,
@@ -218,12 +252,14 @@ def _solve_from_event_multistarts(
             max_nfev=max_nfev,
             compute_laplace_uncertainty=compute_laplace_uncertainty,
         )
-        if np.isfinite(finalist.negative_log_posterior):
+        if np.isfinite(finalist.negative_log_posterior) and np.isfinite(
+            finalist.normalized_data_rms
+        ):
             finalists.append(finalist)
 
     if finalists:
-        return min(finalists, key=lambda result: result.negative_log_posterior)
-    return previews[0]
+        return min(finalists, key=_hypothesis_selection_key)
+    return previews[0][1]
 
 
 def calibrate_audio(
