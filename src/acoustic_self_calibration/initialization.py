@@ -240,7 +240,9 @@ def _deterministic_hypothesis_subsets(
         if not any(np.array_equal(candidate, existing) for existing in mic_sets):
             mic_sets.append(candidate)
     while len(mic_sets) < mic_target:
-        selected = np.sort(rng.choice(np.arange(1, microphone_count), microphone_size - 1, replace=False))
+        selected = np.sort(
+            rng.choice(np.arange(1, microphone_count), microphone_size - 1, replace=False)
+        )
         candidate = np.concatenate([[0], selected])
         if not any(np.array_equal(candidate, existing) for existing in mic_sets):
             mic_sets.append(candidate)
