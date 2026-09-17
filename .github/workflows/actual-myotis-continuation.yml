@@ -1,0 +1,36 @@
+name: Actual Myotis continuation diagnostics
+
+on:
+  push:
+    branches: [diagnostic/full-myotis-trace]
+
+jobs:
+  continuation:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - scale: 0.9
+            budget: 500
+          - scale: 0.9
+            budget: 1000
+          - scale: 0.9
+            budget: 2000
+          - scale: 1.0
+            budget: 500
+          - scale: 1.0
+            budget: 1000
+          - scale: 1.0
+            budget: 2000
+    name: s${{ matrix.scale }}-b${{ matrix.budget }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: diagnostic/full-myotis-trace
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.15"
+      - run: uv python install 3.12
+      - run: uv sync --locked --all-groups --python 3.12
+      - run: PYTHONPATH=. uv run python tools/actual_myotis_continuation.py '${{ matrix.scale }}' '${{ matrix.budget }}'
