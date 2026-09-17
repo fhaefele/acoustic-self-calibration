@@ -26,12 +26,14 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          from textwrap import dedent, indent
 
           path = Path("src/acoustic_self_calibration/pipeline.py")
           text = path.read_text()
           start = text.index("    selected: list[int] = []\n")
           end = text.index("\n    if len(selected) != microphone_count - 1:", start)
-          replacement = '''    star_candidates: list[tuple[float, list[int]]] = []
+          body = dedent("""\
+          star_candidates: list[tuple[float, list[int]]] = []
           for reference in range(microphone_count):
               star_columns: list[int] = []
               for microphone in range(microphone_count):
@@ -64,8 +66,10 @@ jobs:
                   selected.append(column)
                   if len(selected) == microphone_count - 1:
                       break
-          '''
+          """)
+          replacement = indent(body, "    ").rstrip("\n")
           path.write_text(text[:start] + replacement + text[end:])
+          compile(path.read_text(), str(path), "exec")
           PY
       - name: Run focused regression
         shell: bash
