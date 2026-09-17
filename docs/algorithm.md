@@ -94,10 +94,14 @@ tau_(a,b) + tau_(b,c) = tau_(a,c).
 This avoids feeding mutually contradictory independently selected pairwise peaks to
 the geometry solver.
 
-The default measurement graph is redundant: mic 0 is connected to every other
-microphone and additional edges are taken from a small number of reference channels.
-The pure mic-0 star and the complete graph remain available. Derived pair measurements
-are statistically correlated because they share channel-arrival estimates.
+The default exported measurement graph is redundant: mic 0 is connected to every
+other microphone and additional edges are taken from a small number of reference
+channels. The pure mic-0 star and the complete graph remain available. Because all
+derived edges share channel-arrival estimates, graph cycles are statistically
+correlated and exactly linearly dependent. The diagonal-noise MAP solve therefore
+uses a deterministic spanning tree of the requested graph (the mic-0 star for the
+default ordering), while the full redundant graph remains available in the result
+for diagnostics and downstream covariance-aware methods.
 
 ## State
 
