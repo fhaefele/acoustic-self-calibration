@@ -32,11 +32,7 @@ def _audio_to_float64(audio: np.ndarray) -> np.ndarray:
 
 
 def read_multichannel_wav(path: str | Path) -> tuple[int, np.ndarray]:
-    """Read a multichannel WAV file and normalize integer PCM to float64.
-
-    SciPy represents 24-bit PCM as left-justified int32. Dividing by the int32
-    full-scale value therefore also normalizes conventional 24-bit PCM correctly.
-    """
+    """Read a multichannel WAV file and normalize integer PCM to float64."""
     sample_rate, audio = wavfile.read(Path(path))
     samples = _audio_to_float64(np.asarray(audio))
     if samples.ndim != 2:
@@ -49,34 +45,46 @@ def read_multichannel_wav(path: str | Path) -> tuple[int, np.ndarray]:
 def calibrate_wav(
     path: str | Path,
     *,
-    frame_size: int = 1024,
-    hop_size: int = 4096,
-    max_tau_s: float | None = 0.03,
-    gcc_interp: int = 16,
-    pair_mode: str = "redundant",
+    event_channel: int | None = None,
+    event_smooth_s: float = 0.0003,
+    event_min_gap_s: float = 0.003,
+    event_relative_prominence: float = 0.003,
+    max_tau_s: float = 0.01,
+    tdoa_envelope_smooth_s: float = 0.00008,
+    tdoa_template_s: float = 0.0018,
+    tdoa_candidate_count: int = 8,
+    max_tdoa_rate: float = 0.05,
+    tdoa_track_weight: float = 0.4,
+    pair_mode: str = "reference",
     reference_count: int = 2,
     microphone_pairs: Sequence[tuple[int, int]] | None = None,
     speed_of_sound: float = 343.0,
-    motion_velocity_change_sigma_mps: float | None = 3.0,
+    motion_velocity_change_sigma_mps: float | None = 5.0,
     likelihood: str = "cauchy",
     estimate_clock_offsets: bool = False,
     estimate_clock_drifts: bool = False,
     estimate_speed_of_sound: bool = False,
     distance_priors: Sequence[DistancePrior] = (),
-    best_sigma_samples: float = 0.35,
-    worst_sigma_samples: float = 4.0,
+    best_sigma_samples: float = 1.0,
+    worst_sigma_samples: float = 12.0,
     max_nfev: int = 4000,
     compute_laplace_uncertainty: bool = True,
 ) -> AudioCalibrationResult:
-    """Calibrate microphone geometry and moving-source trajectory from a WAV file."""
+    """Calibrate geometry from discrete transient events in a multichannel WAV."""
     sample_rate, audio = read_multichannel_wav(path)
     return calibrate_audio(
         audio,
         sample_rate=sample_rate,
-        frame_size=frame_size,
-        hop_size=hop_size,
+        event_channel=event_channel,
+        event_smooth_s=event_smooth_s,
+        event_min_gap_s=event_min_gap_s,
+        event_relative_prominence=event_relative_prominence,
         max_tau_s=max_tau_s,
-        gcc_interp=gcc_interp,
+        tdoa_envelope_smooth_s=tdoa_envelope_smooth_s,
+        tdoa_template_s=tdoa_template_s,
+        tdoa_candidate_count=tdoa_candidate_count,
+        max_tdoa_rate=max_tdoa_rate,
+        tdoa_track_weight=tdoa_track_weight,
         pair_mode=pair_mode,
         reference_count=reference_count,
         microphone_pairs=microphone_pairs,
