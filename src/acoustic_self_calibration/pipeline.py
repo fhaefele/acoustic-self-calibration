@@ -124,7 +124,7 @@ def _solve_from_event_multistarts(
         initial_microphones=best.microphone_positions,
         initial_sources=best.source_positions,
         initial_clock_offsets_s=best.clock_offsets_s if estimate_clock_offsets else None,
-        initial_clock_drifts=best.clock_drifts if estimate_clock_drifts else None,
+        initial_clock_drifts_s=best.clock_drifts if estimate_clock_drifts else None,
         likelihood=likelihood,
         max_nfev=max_nfev,
         compute_laplace_uncertainty=compute_laplace_uncertainty,
