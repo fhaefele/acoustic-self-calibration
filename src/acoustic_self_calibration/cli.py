@@ -3,9 +3,11 @@ from __future__ import annotations
 import argparse
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 from .bayesian import DistancePrior
-from .export import export_calibration
+from .export import write_calibration_outputs
+from .ground_truth import load_ground_truth_json
 from .wav import calibrate_wav
 
 
@@ -34,7 +36,12 @@ def build_parser() -> argparse.ArgumentParser:
         "-o",
         "--output",
         type=Path,
-        help="output prefix (default: INPUT_calibration)",
+        help="output prefix for RESULT.json and RESULT.png (default: INPUT_calibration)",
+    )
+    parser.add_argument(
+        "--ground-truth",
+        type=Path,
+        help="optional ground-truth JSON for aligned metrics and estimate-vs-GT plots",
     )
     parser.add_argument("--frame-size", type=int, default=1024)
     parser.add_argument("--hop-size", type=int, default=4096)
@@ -69,12 +76,43 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _settings_dict(args: argparse.Namespace) -> dict[str, Any]:
+    return {
+        "frame_size": args.frame_size,
+        "hop_size": args.hop_size,
+        "max_tau_s": args.max_tau_ms / 1000.0,
+        "gcc_interp": args.gcc_interp,
+        "pair_mode": args.pair_mode,
+        "reference_count": args.reference_count,
+        "likelihood": args.likelihood,
+        "speed_of_sound_mps": args.speed_of_sound,
+        "motion_velocity_change_sigma_mps": args.motion_sigma_mps,
+        "estimate_clock_offsets": args.estimate_clock_offsets,
+        "estimate_clock_drifts": args.estimate_clock_drifts,
+        "estimate_speed_of_sound": args.estimate_speed_of_sound,
+        "distance_priors": [
+            {
+                "microphone_a": prior.microphone_a,
+                "microphone_b": prior.microphone_b,
+                "distance_m": prior.distance_m,
+                "sigma_m": prior.sigma_m,
+            }
+            for prior in args.distance_prior
+        ],
+        "best_sigma_samples": args.best_sigma_samples,
+        "worst_sigma_samples": args.worst_sigma_samples,
+        "max_nfev": args.max_nfev,
+        "compute_laplace_uncertainty": not args.no_uncertainty,
+    }
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     output = args.output
     if output is None:
         output = args.wav.with_suffix("").with_name(f"{args.wav.stem}_calibration")
 
+    ground_truth = None if args.ground_truth is None else load_ground_truth_json(args.ground_truth)
     result = calibrate_wav(
         args.wav,
         frame_size=args.frame_size,
@@ -95,17 +133,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         max_nfev=args.max_nfev,
         compute_laplace_uncertainty=not args.no_uncertainty,
     )
-    paths = export_calibration(result, output)
+    paths = write_calibration_outputs(
+        result,
+        output,
+        input_wav_path=args.wav,
+        settings=_settings_dict(args),
+        ground_truth=ground_truth,
+    )
     calibration = result.calibration
 
     print(f"success: {calibration.success}")
     print(f"microphones: {len(calibration.microphone_positions)}")
     print(f"source states: {len(calibration.source_positions)}")
     print(f"TDOA RMS residual: {1e6 * calibration.rms_tdoa_residual_s:.3f} us")
-    print(f"NPZ: {paths.npz}")
     print(f"JSON: {paths.json}")
-    print(f"microphones CSV: {paths.microphones_csv}")
-    print(f"trajectory CSV: {paths.trajectory_csv}")
+    print(f"figure: {paths.figure}")
     if not calibration.success:
         print(f"optimizer message: {calibration.message}")
         return 2

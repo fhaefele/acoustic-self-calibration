@@ -1,6 +1,6 @@
 # Synthetic audio validation
 
-Validated on 2026-09-16 with the public `calibrate_audio(...)` API and extended in the WAV workflow PR with `calibrate_wav(...)`.
+Validated on 2026-09-16 with the public `calibrate_audio(...)` and `calibrate_wav(...)` APIs.
 
 This benchmark is end-to-end. It does **not** feed ideal geometric TDOAs into the solver. Each run:
 
@@ -48,7 +48,7 @@ All runs reported optimizer success.
 
 ## WAV workflow regression
 
-The automated suite also writes the 8-microphone rendered scene to a PCM16 multichannel WAV file and runs the public `calibrate_wav(...)` path with Laplace uncertainty enabled. The test checks:
+The automated suite writes the 8-microphone rendered scene to a PCM16 multichannel WAV file and runs the public `calibrate_wav(...)` path with Laplace uncertainty enabled. The test checks:
 
 - WAV decoding and integer-to-float normalization,
 - full audio -> pairwise TDOA -> MAP calibration,
@@ -59,11 +59,28 @@ The automated suite also writes the 8-microphone rendered scene to a PCM16 multi
 
 Separate decoder tests exercise PCM16, true packed PCM24, PCM32, and float32 WAV files.
 
+## Ground-truth evaluation regression
+
+Ground-truth tests use a scene transformed by a known rigid transform and verify that:
+
+- alignment is fitted from microphones only,
+- the same transform recovers the source trajectory without independent source alignment,
+- GT source samples are interpolated to estimate times,
+- incomplete GT time coverage is rejected,
+- exact transformed scenes produce near-zero microphone and source error,
+- JSON output embeds the GT and aligned evaluation metrics,
+- exactly one JSON result and one PNG figure are emitted,
+- the PNG contains the 3-D plus XY/XZ/YZ comparison panels.
+
+The project no longer emits NPZ or CSV result files.
+
 ## Laplace uncertainty
 
 The solver partitions the final MAP Hessian into global parameters and source states. Microphone/global marginal covariance is obtained with the source block eliminated through a Schur complement. Source-state marginal variances then use the corresponding block-inverse identity, so source standard deviations include coupling to uncertain microphone geometry and enabled nuisance parameters.
 
 These are local posterior standard deviations in the solver's gauge-fixed coordinate frame. They quantify curvature of the fitted model near the MAP solution; they do not capture multimodal ambiguity or model mismatch such as unmodeled room reflections.
+
+The GT evaluation additionally reports a practical radial uncertainty diagnostic based on Euclidean position error divided by `sqrt(std_x^2 + std_y^2 + std_z^2)`. This is not presented as a formal 3-D Gaussian coverage probability because complete per-position covariance matrices and alignment uncertainty are not currently exported.
 
 ## Other automated checks
 
@@ -75,7 +92,8 @@ The test suite also covers:
 - known-baseline sound-speed estimation,
 - rejection of unanchored sound-speed estimation,
 - marginalized microphone and source-position Laplace uncertainty,
-- NPZ, JSON, microphone CSV, and trajectory CSV exports,
+- JSON GT read/write helpers and schema validation,
+- JSON-only result output,
 - moving-source rendering and source directivity,
 - GCC-PHAT delay sign and magnitude.
 

@@ -3,13 +3,18 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from acoustic_self_calibration import calibrate_wav, export_calibration
+from acoustic_self_calibration import (
+    calibrate_wav,
+    load_ground_truth_json,
+    write_calibration_outputs,
+)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Calibrate a multichannel WAV recording")
     parser.add_argument("wav", type=Path)
     parser.add_argument("-o", "--output", type=Path, default=Path("calibration"))
+    parser.add_argument("--ground-truth", type=Path)
     args = parser.parse_args()
 
     result = calibrate_wav(
@@ -20,19 +25,21 @@ def main() -> None:
         reference_count=2,
         likelihood="cauchy",
     )
-    paths = export_calibration(result, args.output)
+    ground_truth = None if args.ground_truth is None else load_ground_truth_json(args.ground_truth)
+    paths = write_calibration_outputs(
+        result,
+        args.output,
+        input_wav_path=args.wav,
+        ground_truth=ground_truth,
+    )
 
     calibration = result.calibration
     print("microphone positions [m]:")
     print(calibration.microphone_positions)
-    print("microphone position std [m]:")
-    print(calibration.microphone_position_std_m)
     print("source positions [m]:")
     print(calibration.source_positions)
-    print("source position std [m]:")
-    print(calibration.source_position_std_m)
-    print(f"trajectory times [s]: {result.frame_times_s}")
-    print(f"saved: {paths}")
+    print(f"saved JSON: {paths.json}")
+    print(f"saved figure: {paths.figure}")
 
 
 if __name__ == "__main__":
