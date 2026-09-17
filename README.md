@@ -2,6 +2,8 @@
 
 Bayesian/MAP **3-D acoustic self-calibration** for a **moving broadband sound source** and stationary microphone arrays, with 8–24 microphones as the primary tested range.
 
+> **Project status:** this is a work-in-progress, vibe-coded research project. Expect rough edges, breaking changes, and evolving APIs while the approach is actively developed and validated.
+
 The package works directly from synchronized multichannel audio. It does **not** require a known calibration pulse or known source emission timestamps.
 
 ## What you get
@@ -150,7 +152,9 @@ asc compare --help
 
 ## Run directly from GitHub
 
-Because this repository is private, a one-shot invocation can use your GitHub SSH credentials:
+Because this repository is private, one-shot invocations can use your GitHub SSH credentials.
+
+Calibrate:
 
 ```bash
 uvx \
@@ -158,6 +162,26 @@ uvx \
   asc calibrate \
   /path/to/file.wav \
   -o wavcalib
+```
+
+Check a scene JSON:
+
+```bash
+uvx \
+  --from 'git+ssh://git@github.com/fhaefele/acoustic-self-calibration.git@main' \
+  asc check \
+  scene.json
+```
+
+Compare two scene JSON files:
+
+```bash
+uvx \
+  --from 'git+ssh://git@github.com/fhaefele/acoustic-self-calibration.git@main' \
+  asc compare \
+  estimate.json \
+  reference.json \
+  -o comparison
 ```
 
 ## Canonical scene JSON
