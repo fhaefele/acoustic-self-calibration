@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "acoustic-self-calibration"
-version = "0.4.0"
+version = "0.5.0"
 description = "Bayesian 3D acoustic self-calibration from a moving broadband source"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -17,7 +17,7 @@ dependencies = [
 ]
 
 [project.scripts]
-acoustic-selfcal = "acoustic_self_calibration.cli:main"
+asc = "acoustic_self_calibration.cli:main"
 
 [dependency-groups]
 dev = [

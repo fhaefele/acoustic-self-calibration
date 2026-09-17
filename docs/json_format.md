@@ -1,8 +1,8 @@
 # JSON format
 
-The project uses one canonical JSON scene schema for both reference input and calibration output.
+The project uses one canonical JSON scene schema for reference input, calibration output, and standalone comparison input.
 
-The core rule is simple: every valid document contains the same top-level `scene` object. Calibration output adds extra sections such as settings, measurements, diagnostics, uncertainty, and evaluation, but its `scene` remains valid reference input for a later run.
+Every valid scene document contains the same top-level `scene` object. Calibration and comparison outputs add extra sections, but their `scene` remains valid input for later `asc calibrate -r ...`, `asc check`, or `asc compare` operations.
 
 The previous pre-`scene` JSON layout is intentionally unsupported.
 
@@ -49,51 +49,48 @@ Required fields:
 
 `metadata` is optional and must be a JSON object when present.
 
-`scene_role: "ground_truth"` means the scene is intended as measured/simulated truth. `scene_role: "estimate"` means it came from a calibration result. Both are accepted by `--ground-truth`, which makes it possible to use one calibration result as the reference for another run without converting formats.
+`scene_role: "ground_truth"` means measured/simulated truth. `scene_role: "estimate"` means the scene came from an estimator. Both roles can be used as references.
 
-## Convenience helpers and validation
+## Validation
 
-Create a correctly formatted GT file with:
+CLI:
 
-```python
-from acoustic_self_calibration import write_ground_truth_json
-
-write_ground_truth_json(
-    "ground_truth.json",
-    microphone_positions_m=microphones,
-    source_times_s=times,
-    source_positions_m=trajectory,
-    metadata={"name": "trial_01"},
-)
+```bash
+asc check scene.json
 ```
 
-Or create the JSON-compatible dictionary:
+Python:
 
 ```python
-from acoustic_self_calibration import make_ground_truth_dict
+from acoustic_self_calibration import validate_ground_truth_json
+
+scene = validate_ground_truth_json("scene.json")
+```
+
+The validator returns a `GroundTruth` scene object and raises `ValueError` for invalid schema, shapes, time ordering, non-finite values, or unsupported roles.
+
+## Ground-truth helpers
+
+```python
+from acoustic_self_calibration import make_ground_truth_dict, write_ground_truth_json
 
 payload = make_ground_truth_dict(
     microphone_positions_m=microphones,
     source_times_s=times,
     source_positions_m=trajectory,
 )
+
+write_ground_truth_json(
+    "ground_truth.json",
+    microphone_positions_m=microphones,
+    source_times_s=times,
+    source_positions_m=trajectory,
+)
 ```
-
-Validate any canonical scene JSON before using it:
-
-```python
-from acoustic_self_calibration import validate_ground_truth_json
-
-reference = validate_ground_truth_json("reference.json")
-```
-
-The function returns a validated `GroundTruth` object and raises `ValueError` for invalid schema, shapes, time ordering, non-finite values, or unsupported roles.
-
-`load_ground_truth_json(...)` uses the same validation and remains the normal loader used by the CLI.
 
 ## Calibration output
 
-A calibration result uses exactly the same core `scene` structure, with `scene_role: "estimate"` and optional per-axis uncertainties added inside the scene:
+Calibration results use the same core scene with `scene_role: "estimate"` and may add per-axis uncertainty:
 
 ```json
 {
@@ -110,9 +107,7 @@ A calibration result uses exactly the same core `scene` structure, with `scene_r
       "std_m": [[0.01, 0.01, 0.02]]
     }
   },
-  "input": {
-    "wav_path": "recording.wav"
-  },
+  "input": {"wav_path": "recording.wav"},
   "settings": {},
   "calibration": {
     "speed_of_sound_mps": 343.0,
@@ -139,84 +134,58 @@ A calibration result uses exactly the same core `scene` structure, with `scene_r
 }
 ```
 
-If uncertainty calculation is disabled, the `std_m` fields and other uncertainty fields are JSON `null`.
+If uncertainty calculation is disabled, uncertainty fields are JSON `null`.
 
-Because the canonical scene is at the same location in every document, a result can be reused directly:
+A result can be reused directly:
 
 ```bash
-acoustic-selfcal second.wav \
-  --ground-truth first_calibration.json \
-  --output second_vs_first
+asc calibrate second.wav -r first_calibration.json -o second_vs_first
 ```
 
-In this case the first calibration is a **reference estimate**, not physical truth. Its `scene_role: "estimate"` is preserved in the second result's `reference` section.
+The first calibration remains `scene_role: "estimate"`, making clear that it is a reference estimate rather than physical truth.
 
 ## Evaluation section
 
-When `--ground-truth` is supplied, the output JSON adds the validated input document as `reference` plus an `evaluation` object.
+When `asc calibrate ... -r REFERENCE` is used, output adds the validated input as `reference` plus an `evaluation` object.
 
-The rigid alignment is fit **only from estimated microphones to reference microphones**. The same transform is then applied to the estimated source trajectory. The source is never independently aligned.
+Alignment is fit **only from estimated microphones to reference microphones**. The same transform is applied to the estimated source trajectory; the source is never independently aligned. Reference source positions are linearly interpolated to the estimate timestamps, and reference time coverage must span all estimate times.
 
-Reference source positions are linearly interpolated to the solver's analysis-frame times before source error is calculated. Reference time coverage must span all estimated source times.
+The evaluation reports microphone and source RMS / mean / max position errors and, when calibration uncertainties are available, practical uncertainty-vs-error diagnostics.
+
+## Standalone comparison output
+
+`asc compare ESTIMATE REFERENCE -o PREFIX` performs the same geometry comparison without recalibrating audio:
+
+```bash
+asc compare run02.json run01.json -o run02_vs_run01
+```
+
+The comparison JSON keeps the estimate scene as its canonical top-level `scene`, so the output itself remains valid scene input. It additionally records:
 
 ```json
 {
+  "comparison": {
+    "estimate_path": "run02.json",
+    "reference_path": "run01.json"
+  },
   "reference": {
     "schema_version": 1,
-    "scene_role": "ground_truth",
-    "scene": {
-      "microphones": {"positions_m": []},
-      "source": {"times_s": [], "positions_m": []}
-    }
+    "scene_role": "estimate",
+    "scene": {}
   },
-  "evaluation": {
-    "alignment": {
-      "rotation": [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
-      "translation_m": [0.0, 0.0, 0.0],
-      "reflection_applied": false,
-      "fitted_from": "microphones_only"
-    },
-    "microphones": {
-      "aligned_estimate_m": [],
-      "error_m": [],
-      "rms_error_m": 0.0,
-      "mean_error_m": 0.0,
-      "max_error_m": 0.0,
-      "uncertainty_diagnostic": null
-    },
-    "source": {
-      "aligned_estimate_m": [],
-      "ground_truth_at_estimate_times_m": [],
-      "error_m": [],
-      "rms_error_m": 0.0,
-      "mean_error_m": 0.0,
-      "max_error_m": 0.0,
-      "uncertainty_diagnostic": null
-    }
-  }
+  "evaluation": {}
 }
 ```
 
+The companion PNG contains 3-D, XY, XZ, and YZ panels with estimate and reference overlaid.
+
 ## Uncertainty diagnostic
 
-When position standard deviations are available, the evaluation reports the practical radial diagnostic
+When position standard deviations are available during calibration-time reference evaluation, the practical radial diagnostic is:
 
 ```text
 rss_std = sqrt(std_x^2 + std_y^2 + std_z^2)
 ratio   = Euclidean_position_error / rss_std
 ```
 
-and records mean/median ratio plus fractions below `1x`, `2x`, and `3x` RSS standard deviation.
-
 This is not a formal 3-D Gaussian coverage probability. The solver currently exposes marginal per-axis standard deviations, not complete per-position covariance matrices, and alignment uncertainty is not included.
-
-## Visualization output
-
-Every CLI run writes one PNG next to the JSON result. The figure contains four panels:
-
-1. 3-D scene,
-2. XY projection,
-3. XZ projection,
-4. YZ projection.
-
-Without a reference, the figure shows estimated microphones and source trajectory. With a reference, every panel shows both the aligned estimate and reference scene. Estimated microphone positions are connected to their reference counterparts. The 2-D panels also draw sparse 1-sigma uncertainty ellipses when uncertainties are available.

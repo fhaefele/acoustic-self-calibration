@@ -12,7 +12,7 @@ from .pipeline import AudioCalibrationResult
 
 @dataclass(frozen=True)
 class GroundTruthEvaluation:
-    """Aligned estimate and quantitative comparison against ground truth."""
+    """Aligned estimate and quantitative comparison against a reference scene."""
 
     aligned_microphone_positions_m: np.ndarray
     aligned_source_positions_m: np.ndarray
@@ -45,9 +45,9 @@ def _interpolate_source_ground_truth(ground_truth: GroundTruth, times_s: np.ndar
     times = np.asarray(times_s, dtype=float)
     tolerance = 1e-9
     if times[0] < ground_truth.source_times_s[0] - tolerance:
-        raise ValueError("estimated source times start before ground-truth source coverage")
+        raise ValueError("estimated source times start before reference source coverage")
     if times[-1] > ground_truth.source_times_s[-1] + tolerance:
-        raise ValueError("estimated source times extend beyond ground-truth source coverage")
+        raise ValueError("estimated source times extend beyond reference source coverage")
     return np.column_stack(
         [
             np.interp(
@@ -81,35 +81,30 @@ def _uncertainty_diagnostic(
     }
 
 
-def evaluate_against_ground_truth(
-    result: AudioCalibrationResult,
-    ground_truth: GroundTruth,
+def evaluate_scenes(
+    estimate: GroundTruth,
+    reference: GroundTruth,
+    *,
+    microphone_position_std_m: np.ndarray | None = None,
+    source_position_std_m: np.ndarray | None = None,
 ) -> GroundTruthEvaluation:
-    """Align the recovered scene using microphones and compare it against ground truth.
-
-    A single orthogonal transform is fitted from estimated microphones to ground-truth
-    microphones. The same transform is then applied to every recovered source state.
-    The source trajectory is never independently aligned.
-    """
-    calibration = result.calibration
-    if calibration.microphone_positions.shape != ground_truth.microphone_positions_m.shape:
-        raise ValueError(
-            "ground-truth microphone count must exactly match the calibrated microphone count"
-        )
+    """Align one scene to another using microphones and compare the full scene."""
+    if estimate.microphone_positions_m.shape != reference.microphone_positions_m.shape:
+        raise ValueError("reference microphone count must exactly match estimate microphone count")
 
     aligned_microphones, rotation, translation = rigid_align(
-        calibration.microphone_positions,
-        ground_truth.microphone_positions_m,
+        estimate.microphone_positions_m,
+        reference.microphone_positions_m,
         allow_reflection=True,
     )
-    aligned_source = apply_rigid(calibration.source_positions, rotation, translation)
-    source_ground_truth = _interpolate_source_ground_truth(ground_truth, result.frame_times_s)
+    aligned_source = apply_rigid(estimate.source_positions_m, rotation, translation)
+    source_reference = _interpolate_source_ground_truth(reference, estimate.source_times_s)
 
     microphone_error = np.linalg.norm(
-        aligned_microphones - ground_truth.microphone_positions_m,
+        aligned_microphones - reference.microphone_positions_m,
         axis=1,
     )
-    source_error = np.linalg.norm(aligned_source - source_ground_truth, axis=1)
+    source_error = np.linalg.norm(aligned_source - source_reference, axis=1)
 
     mic_rms, mic_mean, mic_max = _summary(microphone_error)
     src_rms, src_mean, src_max = _summary(source_error)
@@ -117,7 +112,7 @@ def evaluate_against_ground_truth(
     return GroundTruthEvaluation(
         aligned_microphone_positions_m=aligned_microphones,
         aligned_source_positions_m=aligned_source,
-        ground_truth_source_at_estimate_times_m=source_ground_truth,
+        ground_truth_source_at_estimate_times_m=source_reference,
         microphone_error_m=microphone_error,
         source_error_m=source_error,
         rotation=rotation,
@@ -131,12 +126,33 @@ def evaluate_against_ground_truth(
         source_max_error_m=src_max,
         microphone_uncertainty_diagnostic=_uncertainty_diagnostic(
             microphone_error,
-            calibration.microphone_position_std_m,
+            microphone_position_std_m,
         ),
         source_uncertainty_diagnostic=_uncertainty_diagnostic(
             source_error,
-            calibration.source_position_std_m,
+            source_position_std_m,
         ),
+    )
+
+
+def evaluate_against_ground_truth(
+    result: AudioCalibrationResult,
+    ground_truth: GroundTruth,
+) -> GroundTruthEvaluation:
+    """Compare one calibration result against a reference scene."""
+    calibration = result.calibration
+    estimate = GroundTruth(
+        microphone_positions_m=calibration.microphone_positions,
+        source_times_s=result.frame_times_s,
+        source_positions_m=calibration.source_positions,
+        metadata={},
+        scene_role="estimate",
+    )
+    return evaluate_scenes(
+        estimate,
+        ground_truth,
+        microphone_position_std_m=calibration.microphone_position_std_m,
+        source_position_std_m=calibration.source_position_std_m,
     )
 
 
