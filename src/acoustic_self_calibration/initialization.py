@@ -407,8 +407,7 @@ def low_rank_initial_scene_hypotheses(
     unique_ranges: list[np.ndarray] = []
     for _, reference_ranges in range_candidates:
         if any(
-            np.linalg.norm(reference_ranges - existing)
-            <= 1e-3 * max(1.0, np.linalg.norm(existing))
+            np.linalg.norm(reference_ranges - existing) <= 1e-3 * max(1.0, np.linalg.norm(existing))
             for existing in unique_ranges
         ):
             continue
