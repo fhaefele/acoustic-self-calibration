@@ -1,0 +1,96 @@
+name: Event-channel hybrid diagnostics
+
+on:
+  push:
+    branches: [diagnostic/event-channel-hybrid]
+
+jobs:
+  geometry:
+    strategy:
+      fail-fast: false
+      matrix:
+        case: [m8, m12, m16, m24, myotis, pcm8]
+    name: ${{ matrix.case }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: diagnostic/event-channel-hybrid
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.15"
+      - run: uv python install 3.12
+      - run: uv sync --locked --all-groups --python 3.12
+      - name: Patch event-channel star and hybrid final factors
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from textwrap import dedent, indent
+
+          path = Path("src/acoustic_self_calibration/pipeline.py")
+          text = path.read_text()
+          start = text.index("    selected: list[int] = []\n")
+          end = text.index("\n    if len(selected) != microphone_count - 1:", start)
+          body = dedent("""\
+          selected: list[int] = []
+          event_reference = int(measurements.event_channel)
+          if 0 <= event_reference < microphone_count:
+              for microphone in range(microphone_count):
+                  if microphone == event_reference:
+                      continue
+                  for column, (a, b) in enumerate(measurements.microphone_pairs):
+                      if {a, b} == {event_reference, microphone}:
+                          selected.append(column)
+                          break
+                  else:
+                      selected.clear()
+                      break
+
+          if len(selected) != microphone_count - 1:
+              selected.clear()
+              edge_order = np.argsort(np.mean(values * values, axis=0), kind="stable")
+              for column_value in edge_order:
+                  column = int(column_value)
+                  a, b = measurements.microphone_pairs[column]
+                  root_a = find(a)
+                  root_b = find(b)
+                  if root_a == root_b:
+                      continue
+                  parent[root_b] = root_a
+                  selected.append(column)
+                  if len(selected) == microphone_count - 1:
+                      break
+          """)
+          replacement = indent(body, "    ").rstrip("\n")
+          text = text[:start] + replacement + text[end:]
+
+          old = "    solver_measurements = preview_measurements\n    solver_sigma = preview_sigma\n"
+          new = dedent("""\
+          if microphone_count <= 12:
+              solver_measurements = preview_measurements
+              solver_sigma = preview_sigma
+          else:
+              independent_edge_count = microphone_count - 1
+              redundant_edge_count = len(measurements.microphone_pairs)
+              redundancy_scale = np.sqrt(redundant_edge_count / independent_edge_count)
+              solver_measurements = measurements
+              solver_sigma = np.asarray(sigma, dtype=float) * redundancy_scale
+          """)
+          new = indent(new, "    ")
+          if text.count(old) != 1:
+              raise SystemExit(f"expected exactly one final factor block, found {text.count(old)}")
+          text = text.replace(old, new, 1)
+          path.write_text(text)
+          compile(path.read_text(), str(path), "exec")
+          PY
+      - name: Run focused regression
+        shell: bash
+        run: |
+          case "${{ matrix.case }}" in
+            m8) uv run pytest -q 'tests/test_end_to_end_audio.py::test_event_pipeline_self_calibrates_rendered_pulsed_source[8]' ;;
+            m12) uv run pytest -q 'tests/test_end_to_end_audio.py::test_event_pipeline_self_calibrates_rendered_pulsed_source[12]' ;;
+            m16) uv run pytest -q 'tests/test_end_to_end_audio.py::test_event_pipeline_self_calibrates_rendered_pulsed_source[16]' ;;
+            m24) uv run pytest -q 'tests/test_end_to_end_audio.py::test_event_pipeline_self_calibrates_rendered_pulsed_source[24]' ;;
+            myotis) uv run pytest -q tests/test_end_to_end_audio.py::test_event_pipeline_self_calibrates_myotis_planar_layout ;;
+            pcm8) uv run pytest -q tests/test_end_to_end_audio.py::test_pcm16_pulsed_wav_pipeline_returns_joint_position_uncertainty ;;
+          esac
