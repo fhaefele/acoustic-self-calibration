@@ -1,4 +1,4 @@
-"""Bayesian 3-D acoustic self-calibration for a moving broadband source."""
+"""Bayesian 3-D acoustic self-calibration from discrete moving-source events."""
 
 from .bayesian import (
     BayesianCalibrationResult,
@@ -7,6 +7,12 @@ from .bayesian import (
     tdoa_sigma_from_confidence,
 )
 from .evaluation import GroundTruthEvaluation, evaluate_against_ground_truth, evaluate_scenes
+from .events import (
+    EventDetection,
+    EventTDOAMeasurements,
+    detect_transient_events,
+    estimate_event_tdoas,
+)
 from .export import (
     CalibrationOutputPaths,
     calibration_result_to_dict,
@@ -23,7 +29,12 @@ from .ground_truth import (
     write_ground_truth_json,
 )
 from .pipeline import AudioCalibrationResult, calibrate_audio
-from .simulation import apply_channel_clock_model, random_microphone_array, render_moving_source
+from .simulation import (
+    apply_channel_clock_model,
+    broadband_pulse_train,
+    random_microphone_array,
+    render_moving_source,
+)
 from .tdoa import estimate_pairwise_tdoa_matrix, gcc_phat, make_microphone_pairs
 from .visualization import plot_calibration_comparison, plot_scene_comparison
 from .wav import calibrate_wav, read_multichannel_wav
@@ -33,13 +44,18 @@ __all__ = [
     "BayesianCalibrationResult",
     "CalibrationOutputPaths",
     "DistancePrior",
+    "EventDetection",
+    "EventTDOAMeasurements",
     "GroundTruth",
     "GroundTruthEvaluation",
     "apply_channel_clock_model",
+    "broadband_pulse_train",
     "calibrate_audio",
     "calibrate_bayesian",
     "calibrate_wav",
     "calibration_result_to_dict",
+    "detect_transient_events",
+    "estimate_event_tdoas",
     "estimate_pairwise_tdoa_matrix",
     "evaluate_against_ground_truth",
     "evaluate_scenes",
