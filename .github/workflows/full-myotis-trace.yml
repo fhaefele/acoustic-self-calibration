@@ -1,0 +1,19 @@
+name: Full Myotis multistart trace
+
+on:
+  push:
+    branches: [diagnostic/full-myotis-trace]
+
+jobs:
+  trace:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: diagnostic/full-myotis-trace
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.15"
+      - run: uv python install 3.12
+      - run: uv sync --locked --all-groups --python 3.12
+      - run: uv run python tools/full_myotis_trace.py
