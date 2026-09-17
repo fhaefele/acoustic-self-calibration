@@ -182,6 +182,7 @@ def _localize_sources(
 
     sources: list[np.ndarray] = []
     for event in range(len(tdoa_s)):
+
         def residual(source: np.ndarray) -> np.ndarray:
             predicted = np.array(
                 [
