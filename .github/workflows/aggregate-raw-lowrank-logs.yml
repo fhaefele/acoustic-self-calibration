@@ -1,0 +1,19 @@
+name: Aggregate raw low-rank logs
+
+on:
+  push:
+    branches: [diagnostic/log-aggregate]
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  aggregate:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Print candidate result lines
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run view 35260438774 --repo fhaefele/acoustic-self-calibration --log | grep -E 'unique_count=|RESULT index=|SKIP index=' || true
