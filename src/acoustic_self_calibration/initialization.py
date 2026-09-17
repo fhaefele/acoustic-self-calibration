@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import numpy as np
 from scipy.optimize import least_squares, minimize
 
@@ -7,7 +9,7 @@ from .geometry import canonicalize_scene
 
 
 def pack_geometry(microphones: np.ndarray, sources: np.ndarray) -> np.ndarray:
-    """Pack geometry after fixing the six rigid-body gauge degrees of freedom."""
+    """Legacy compact geometry packer kept for downstream callers."""
     m = np.asarray(microphones, dtype=float)
     s = np.asarray(sources, dtype=float)
     head = np.array(
@@ -22,7 +24,7 @@ def unpack_geometry(
     microphone_count: int,
     frame_count: int,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Unpack the canonical 3-D microphone/source state."""
+    """Legacy compact geometry unpacker kept for downstream callers."""
     x = np.asarray(parameters, dtype=float)
     microphones = np.zeros((microphone_count, 3), dtype=float)
     x1, x2, y2, x3, y3, z3 = x[:6]
@@ -46,16 +48,7 @@ def low_rank_initial_scene(
     observed_range_differences: np.ndarray,
     position_bound_m: float,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Initialize a 3-D scene from range-difference data.
-
-    The unknown source-to-reference ranges are optimized so the doubly centered
-    cross-squared-distance matrix is approximately rank three. A rank-3 factorization
-    then supplies microphone and source coordinates up to an affine ambiguity, which
-    is resolved by fitting the recovered cross distances.
-
-    This gives the nonlinear MAP optimizer a geometry-aware start without assuming
-    any microphone coordinates are known.
-    """
+    """Initialize a 3-D scene from range-difference data."""
     observed = np.asarray(observed_range_differences, dtype=float)
     if observed.ndim != 2:
         raise ValueError("observed_range_differences must have shape (frames, microphones-1)")
@@ -148,3 +141,129 @@ def low_rank_initial_scene(
     )
     microphones, sources, offset = affine_unpack(affine_fit.x)
     return canonicalize_scene(microphones + offset, sources)
+
+
+def _classical_mds(distance_m: np.ndarray) -> np.ndarray:
+    distance = np.asarray(distance_m, dtype=float)
+    count = distance.shape[0]
+    centering = np.eye(count) - np.ones((count, count)) / count
+    gram = -0.5 * centering @ (distance * distance) @ centering
+    eigenvalues, eigenvectors = np.linalg.eigh(gram)
+    order = np.argsort(eigenvalues)[::-1][:3]
+    values = np.sqrt(np.maximum(eigenvalues[order], 0.0))
+    return eigenvectors[:, order] * values[None, :]
+
+
+def _localize_sources(
+    microphones: np.ndarray,
+    tdoa_s: np.ndarray,
+    tdoa_sigma_s: np.ndarray,
+    microphone_pairs: Sequence[tuple[int, int]],
+    speed_of_sound: float,
+    position_bound_m: float,
+) -> np.ndarray:
+    center = microphones.mean(axis=0)
+    aperture = max(float(np.max(np.linalg.norm(microphones - center, axis=1))), 0.25)
+    directions = np.array(
+        [
+            [1.0, 0.0, 0.0],
+            [-1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, -1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [0.0, 0.0, -1.0],
+            [1.0, 1.0, 1.0],
+            [-1.0, 1.0, 1.0],
+        ],
+        dtype=float,
+    )
+    directions /= np.linalg.norm(directions, axis=1, keepdims=True)
+    starts = [center, *(center + 2.5 * aperture * directions)]
+
+    sources: list[np.ndarray] = []
+    for event in range(len(tdoa_s)):
+        def residual(source: np.ndarray) -> np.ndarray:
+            predicted = np.array(
+                [
+                    (
+                        np.linalg.norm(source - microphones[b])
+                        - np.linalg.norm(source - microphones[a])
+                    )
+                    / speed_of_sound
+                    for a, b in microphone_pairs
+                ]
+            )
+            return (predicted - tdoa_s[event]) / tdoa_sigma_s[event]
+
+        event_starts = ([sources[-1]] if sources else []) + starts
+        best_cost = np.inf
+        best_source = center
+        for start in event_starts:
+            fit = least_squares(
+                residual,
+                np.clip(start, -position_bound_m, position_bound_m),
+                bounds=(-position_bound_m, position_bound_m),
+                max_nfev=100,
+                ftol=1e-6,
+                xtol=1e-6,
+                gtol=1e-6,
+            )
+            cost = float(np.sum(residual(fit.x) ** 2))
+            if cost < best_cost:
+                best_cost = cost
+                best_source = fit.x
+        sources.append(np.asarray(best_source, dtype=float))
+    return np.stack(sources)
+
+
+def event_initial_scene_candidates(
+    arrival_delays_s: np.ndarray,
+    tdoa_s: np.ndarray,
+    tdoa_sigma_s: np.ndarray,
+    microphone_pairs: Sequence[tuple[int, int]],
+    *,
+    speed_of_sound: float,
+    position_bound_m: float = 30.0,
+    scale_candidates: Sequence[float] = (0.55, 0.75, 1.0),
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Build coarse event-calibration starts from TDOA baseline lower bounds.
+
+    For a moving source, the maximum observed absolute TDOA for a microphone pair
+    is a lower bound on that microphone baseline. Classical MDS on these bounds
+    gives a useful coarse array shape without assuming any microphone ordering.
+    Several scale hypotheses are retained because finite source coverage generally
+    underestimates the true baselines. Source points are then hyperbolically
+    localized against each array hypothesis before joint MAP refinement.
+    """
+    arrival = np.asarray(arrival_delays_s, dtype=float)
+    tau = np.asarray(tdoa_s, dtype=float)
+    sigma = np.asarray(tdoa_sigma_s, dtype=float)
+    if arrival.ndim != 2 or arrival.shape[0] != tau.shape[0]:
+        raise ValueError("arrival_delays_s must have shape (events, microphones)")
+    microphone_count = arrival.shape[1]
+    if microphone_count < 4:
+        raise ValueError("At least four microphones are required")
+
+    baselines = np.zeros((microphone_count, microphone_count), dtype=float)
+    for a in range(microphone_count):
+        for b in range(a + 1, microphone_count):
+            lower_bound = speed_of_sound * float(np.max(np.abs(arrival[:, b] - arrival[:, a])))
+            baselines[a, b] = lower_bound
+            baselines[b, a] = lower_bound
+    microphones_base = _classical_mds(baselines)
+
+    candidates: list[tuple[np.ndarray, np.ndarray]] = []
+    for scale in scale_candidates:
+        if scale <= 0:
+            raise ValueError("scale_candidates must be positive")
+        microphones = microphones_base * float(scale)
+        sources = _localize_sources(
+            microphones,
+            tau,
+            sigma,
+            microphone_pairs,
+            speed_of_sound,
+            position_bound_m,
+        )
+        candidates.append((microphones, sources))
+    return candidates
