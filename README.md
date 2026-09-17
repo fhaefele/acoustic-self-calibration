@@ -10,13 +10,12 @@ From one multichannel recording, the solver estimates:
 
 - stationary 3-D microphone positions,
 - the moving source position at each analysis frame,
-- per-axis microphone position uncertainty,
-- per-axis source trajectory uncertainty,
+- per-axis microphone and source-position uncertainty,
 - optional relative microphone clock offsets and drift,
 - optional speed of sound when a metric microphone-distance anchor is provided,
 - TDOA and posterior diagnostics.
 
-Every run writes exactly two output files:
+Each calibration writes exactly:
 
 ```text
 RESULT.json
@@ -25,98 +24,90 @@ RESULT.png
 
 The JSON is the complete machine-readable result. The PNG is one 2x2 figure containing a 3-D scene plus XY, XZ, and YZ projections.
 
-## Run directly from GitHub
+## CLI
 
-Because this repository is private, the one-shot `uvx` form uses your GitHub SSH credentials:
-
-```bash
-uvx \
-  --from 'git+ssh://git@github.com/fhaefele/acoustic-self-calibration.git@main' \
-  acoustic-selfcal \
-  /path/to/file.wav \
-  --output wavcalib
-```
-
-This produces:
+The installed command is `asc`. The CLI is intentionally organized around subcommands:
 
 ```text
-wavcalib.json
-wavcalib.png
+asc calibrate WAV
+asc check JSON
+asc compare ESTIMATE_JSON REFERENCE_JSON
 ```
 
-`--output` is an output prefix. Passing `--output wavcalib.json` is also accepted; the suffix is stripped before writing `wavcalib.json` and `wavcalib.png`.
+The previous flat `acoustic-selfcal recording.wav ...` command is intentionally unsupported.
 
-## Ground-truth / reference evaluation
-
-Provide a canonical scene JSON file to evaluate the recovered microphone geometry and source trajectory:
+### Calibrate
 
 ```bash
-uvx \
-  --from 'git+ssh://git@github.com/fhaefele/acoustic-self-calibration.git@main' \
-  acoustic-selfcal \
-  recording.wav \
-  --ground-truth ground_truth.json \
-  --output wavcalib
-```
-
-The output files remain exactly the same:
-
-```text
-wavcalib.json
-wavcalib.png
+asc calibrate recording.wav -o run01
 ```
 
 With a reference scene:
 
-- the JSON embeds the reference and adds an `evaluation` section,
-- microphone RMS / mean / max errors are reported,
-- source trajectory RMS / mean / max errors are reported,
-- uncertainty-vs-error diagnostics are reported when posterior stds are available,
-- the figure overlays estimated and reference microphones and source trajectory in all four panels.
+```bash
+asc calibrate recording.wav -o run01 -r reference.json
+```
 
-The evaluation fits **one rigid transform from estimated microphones to reference microphones only**. That exact transform is then applied to the source trajectory. The source is never independently aligned. Reference source positions are interpolated to the acoustic analysis-frame times.
+Only output and reference have short flags:
 
-Calibration output uses the same canonical `scene` schema as GT input, so a previous result JSON can be used directly as the reference for a later run:
+```text
+-o, --output PREFIX
+-r, --reference JSON
+```
+
+Solver options use long names only:
+
+```text
+--frame-size INT
+--hop-size INT
+--max-tau-ms FLOAT
+--gcc-interp INT
+--pair-mode {reference,redundant,all}
+--reference-count INT
+--likelihood {cauchy,gaussian}
+--speed-of-sound FLOAT
+--motion-sigma-mps FLOAT
+--estimate-clock-offsets
+--estimate-clock-drifts
+--estimate-speed-of-sound
+--distance-prior MIC_A,MIC_B,DISTANCE_M,SIGMA_M
+--best-sigma-samples FLOAT
+--worst-sigma-samples FLOAT
+--max-nfev INT
+--no-uncertainty
+```
+
+A typical real-data command is:
 
 ```bash
-uv run acoustic-selfcal second.wav \
-  --ground-truth first_calibration.json \
-  --output second_vs_first
+asc calibrate recording.wav \
+  -o results/run01 \
+  --frame-size 1024 \
+  --hop-size 4096 \
+  --pair-mode redundant \
+  --reference-count 2 \
+  --likelihood cauchy
 ```
 
-A reused calibration result keeps `scene_role: "estimate"`, making it explicit that it is a reference estimate rather than measured physical truth.
+Sound speed and scene scale are ambiguous from TDOAs alone. To estimate sound speed, provide at least one known microphone baseline:
 
-See [`docs/json_format.md`](docs/json_format.md) for the complete unified JSON schema.
-
-## Ground-truth JSON helpers and validation
-
-You do not need to hand-author GT JSON. Use the convenience function:
-
-```python
-from acoustic_self_calibration import write_ground_truth_json
-
-write_ground_truth_json(
-    "ground_truth.json",
-    microphone_positions_m=microphones,
-    source_times_s=times,
-    source_positions_m=trajectory,
-    metadata={"name": "trial_01"},
-)
+```bash
+asc calibrate recording.wav \
+  --estimate-speed-of-sound \
+  --distance-prior 0,1,1.234,0.002
 ```
 
-Or build the validated JSON object without writing a file:
+### Check a scene JSON
 
-```python
-from acoustic_self_calibration import make_ground_truth_dict
+Both physical ground truth and calibration outputs use the same canonical scene schema. Validate either form with:
 
-payload = make_ground_truth_dict(
-    microphone_positions_m=microphones,
-    source_times_s=times,
-    source_positions_m=trajectory,
-)
+```bash
+asc check reference.json
 ```
 
-Validate a GT file or a previous calibration result before using it:
+Successful output includes the scene role, microphone count, source-state count, and source time range. Invalid input exits nonzero with a validation error.
+
+The same validation is available from Python:
 
 ```python
 from acoustic_self_calibration import validate_ground_truth_json
@@ -124,7 +115,54 @@ from acoustic_self_calibration import validate_ground_truth_json
 reference = validate_ground_truth_json("reference.json")
 ```
 
-The canonical minimal GT schema is:
+### Compare two scene JSON files
+
+Compare an estimate against a reference without recalibrating audio:
+
+```bash
+asc compare run02.json truth.json -o run02_vs_truth
+```
+
+or compare two calibration runs:
+
+```bash
+asc compare run02.json run01.json -o run02_vs_run01
+```
+
+This writes:
+
+```text
+run02_vs_run01.json
+run02_vs_run01.png
+```
+
+The comparison uses the same microphone-only rigid alignment and source-trajectory interpolation as calibration-time reference evaluation. The first positional file is always the estimate being evaluated; the second is the reference.
+
+### Help and version
+
+```bash
+asc --help
+asc --version
+asc calibrate --help
+asc check --help
+asc compare --help
+```
+
+## Run directly from GitHub
+
+Because this repository is private, a one-shot invocation can use your GitHub SSH credentials:
+
+```bash
+uvx \
+  --from 'git+ssh://git@github.com/fhaefele/acoustic-self-calibration.git@main' \
+  asc calibrate \
+  /path/to/file.wav \
+  -o wavcalib
+```
+
+## Canonical scene JSON
+
+Ground-truth input and calibration output share one schema. The minimal GT form is:
 
 ```json
 {
@@ -138,53 +176,38 @@ The canonical minimal GT schema is:
       "times_s": [0.0, 0.1, 0.2],
       "positions_m": [[2.0, 0.0, 1.0], [1.95, 0.2, 1.02], [1.85, 0.4, 1.05]]
     }
-  },
-  "metadata": {
-    "name": "trial_01"
   }
 }
 ```
 
-The previous pre-`scene` JSON schema is intentionally unsupported.
+Calibration results use `scene_role: "estimate"` and add uncertainties, measurements, settings, diagnostics, and optionally evaluation. A previous calibration JSON can therefore be used directly with `-r/--reference` or `asc compare`.
 
-## Local checkout
+The pre-`scene` JSON schema is intentionally unsupported. See [`docs/json_format.md`](docs/json_format.md) for the complete format.
 
-```bash
-uv sync --all-groups
-uv run acoustic-selfcal recording.wav --output results/calibration
+## Ground-truth JSON helpers
+
+```python
+from acoustic_self_calibration import make_ground_truth_dict, write_ground_truth_json
+
+payload = make_ground_truth_dict(
+    microphone_positions_m=microphones,
+    source_times_s=times,
+    source_positions_m=trajectory,
+)
+
+write_ground_truth_json(
+    "ground_truth.json",
+    microphone_positions_m=microphones,
+    source_times_s=times,
+    source_positions_m=trajectory,
+)
 ```
 
-A typical real-data command is:
+## Reference evaluation
 
-```bash
-uv run acoustic-selfcal recording.wav \
-  --output results/run01 \
-  --frame-size 1024 \
-  --hop-size 4096 \
-  --pair-mode redundant \
-  --reference-count 2 \
-  --likelihood cauchy
-```
+The evaluation fits **one rigid transform from estimated microphones to reference microphones only**. That exact transform is applied to the source trajectory; the source is never independently aligned. Reference source positions are interpolated to the acoustic analysis-frame times.
 
-For channels with unknown relative timing:
-
-```bash
-uv run acoustic-selfcal recording.wav \
-  --estimate-clock-offsets \
-  --estimate-clock-drifts
-```
-
-Clock drift remains experimental.
-
-Sound speed and scene scale are ambiguous from TDOAs alone. To estimate sound speed, provide at least one known microphone baseline:
-
-```bash
-uv run acoustic-selfcal recording.wav \
-  --estimate-speed-of-sound \
-  --distance-prior 0,1,1.234,0.002
-```
-
-This means microphones 0 and 1 are `1.234 m` apart with a `0.002 m` standard deviation.
+The JSON reports microphone and source RMS / mean / max errors plus uncertainty-vs-error diagnostics when posterior standard deviations are available. The figure overlays the aligned estimate and reference in all four panels.
 
 ## Python API
 
@@ -195,15 +218,7 @@ from acoustic_self_calibration import (
     write_calibration_outputs,
 )
 
-result = calibrate_wav(
-    "recording.wav",
-    frame_size=1024,
-    hop_size=4096,
-    pair_mode="redundant",
-    reference_count=2,
-    likelihood="cauchy",
-)
-
+result = calibrate_wav("recording.wav")
 reference = load_ground_truth_json("reference.json")
 paths = write_calibration_outputs(
     result,
@@ -211,9 +226,6 @@ paths = write_calibration_outputs(
     input_wav_path="recording.wav",
     ground_truth=reference,
 )
-
-print(paths.json)
-print(paths.figure)
 ```
 
 For an in-memory array:
@@ -221,55 +233,7 @@ For an in-memory array:
 ```python
 from acoustic_self_calibration import calibrate_audio
 
-result = calibrate_audio(
-    audio,  # shape: (samples, microphones)
-    sample_rate=48_000,
-)
-```
-
-## Visualization
-
-`RESULT.png` is one figure with:
-
-1. **3-D scene**
-2. **XY projection**
-3. **XZ projection**
-4. **YZ projection**
-
-Every panel contains microphone positions and source trajectory. With a reference, every panel contains both the aligned estimate and reference scene. Microphone correspondence lines make geometry error visible directly. Sparse 1-sigma uncertainty ellipses are shown in the 2-D panels when uncertainty is available.
-
-## Pipeline
-
-```text
-moving broadband source
-        |
-        v
-multichannel waveform / WAV
-        |
-        v
-redundant pairwise GCC-PHAT TDOAs
-        |
-        v
-confidence -> heteroscedastic timing uncertainty
-        |
-        v
-low-rank Euclidean scene initializer
-        |
-        v
-Bayesian factor graph / MAP optimization
-  - stationary microphone positions
-  - moving source trajectory
-  - motion prior
-  - robust Cauchy-IRLS or Gaussian TDOA likelihood
-  - optional clock offsets / drift
-  - optional sound-speed estimation with metric anchor
-        |
-        v
-joint Laplace uncertainty
-        |
-        +--> result JSON
-        +--> 3-D + XY/XZ/YZ PNG
-        +--> optional reference evaluation
+result = calibrate_audio(audio, sample_rate=48_000)
 ```
 
 ## Recording requirements
@@ -305,12 +269,10 @@ The automated tests cover:
 - microphone/source Laplace uncertainty,
 - relative clock-offset estimation,
 - sound-speed estimation with a known baseline,
-- JSON-only output,
-- canonical scene JSON helpers and validation,
-- direct reuse of result JSON as reference input,
-- explicit rejection of the old pre-`scene` schema,
-- microphone-only rigid alignment for reference evaluation,
-- source reference interpolation to estimate times,
+- canonical scene JSON validation,
+- calibration-result reuse as reference input,
+- `asc calibrate`, `asc check`, and `asc compare`,
+- standalone scene comparison JSON+PNG output,
 - 3-D + XY/XZ/YZ visualization generation.
 
 Run:
@@ -342,10 +304,10 @@ src/acoustic_self_calibration/
     pipeline.py        in-memory audio -> TDOA -> MAP API
     wav.py             WAV loading + calibrate_wav API
     ground_truth.py    scene JSON validation/read/write helpers
-    evaluation.py      rigid alignment + reference metrics
-    visualization.py   one 3-D/XY/XZ/YZ figure
-    export.py          JSON result + PNG writer
-    cli.py             acoustic-selfcal CLI
+    evaluation.py      rigid alignment + scene comparison metrics
+    visualization.py   3-D/XY/XZ/YZ figures
+    export.py          JSON + PNG writers
+    cli.py             asc subcommand CLI
     tdoa.py            GCC-PHAT and redundant pair graphs
     simulation.py      continuous moving-source renderer
     radiation.py       source directivity patterns
