@@ -11,7 +11,7 @@ from .bayesian import (
     calibrate_bayesian,
     tdoa_sigma_from_confidence,
 )
-from .events import detect_transient_events, estimate_event_tdoas
+from .events import EventTDOAMeasurements, detect_transient_events, estimate_event_tdoas
 from .initialization import event_initial_scene_candidates
 from .tdoa import make_microphone_pairs
 
@@ -39,7 +39,7 @@ class AudioCalibrationResult:
 
 
 def _solve_from_event_multistarts(
-    measurements,
+    measurements: EventTDOAMeasurements,
     microphone_count: int,
     *,
     sigma: np.ndarray,
@@ -124,7 +124,7 @@ def _solve_from_event_multistarts(
         initial_microphones=best.microphone_positions,
         initial_sources=best.source_positions,
         initial_clock_offsets_s=best.clock_offsets_s if estimate_clock_offsets else None,
-        initial_clock_drifts_s=best.clock_drifts if estimate_clock_drifts else None,
+        initial_clock_drifts=best.clock_drifts if estimate_clock_drifts else None,
         likelihood=likelihood,
         max_nfev=max_nfev,
         compute_laplace_uncertainty=compute_laplace_uncertainty,
