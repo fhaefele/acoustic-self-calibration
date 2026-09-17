@@ -14,5 +14,33 @@ jobs:
           version: "0.12.15"
       - run: uv python install 3.12
       - run: uv sync --locked --all-groups --python 3.12
-      - run: python -c "from pathlib import Path; p=Path('src/acoustic_self_calibration/pipeline.py'); t=p.read_text(); m='    preview_budget = min(max_nfev, 250)\\n'; r='    solver_measurements = preview_measurements\\n    solver_sigma = preview_sigma\\n\\n'+m; assert t.count(m)==1; p.write_text(t.replace(m,r,1))"
+      - name: Patch confidence-weighted independent factors
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          p = Path('src/acoustic_self_calibration/pipeline.py')
+          t = p.read_text()
+          old = '''    selected: list[int] = []
+    for column, (a, b) in enumerate(measurements.microphone_pairs):
+'''
+          new = '''    selected: list[int] = []
+    edge_order = np.argsort(np.mean(values * values, axis=0), kind="stable")
+    for column_value in edge_order:
+        column = int(column_value)
+        a, b = measurements.microphone_pairs[column]
+'''
+          assert t.count(old) == 1
+          t = t.replace(old, new, 1)
+          marker = '    preview_budget = min(max_nfev, 250)\n'
+          replacement = '''    # Pairwise event TDOAs share per-channel arrivals, so cycle edges are
+    # correlated. Use the minimum-uncertainty independent tree for MAP; retain
+    # the redundant graph only for coarse MDS candidate construction.
+    solver_measurements = preview_measurements
+    solver_sigma = preview_sigma
+
+''' + marker
+          assert t.count(marker) == 1
+          p.write_text(t.replace(marker, replacement, 1))
+          PY
       - run: uv run pytest -q 'tests/test_end_to_end_audio.py::test_event_pipeline_self_calibrates_rendered_pulsed_source[8]' tests/test_end_to_end_audio.py::test_event_pipeline_self_calibrates_myotis_planar_layout tests/test_end_to_end_audio.py::test_pcm16_pulsed_wav_pipeline_returns_joint_position_uncertainty
