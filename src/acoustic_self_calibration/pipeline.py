@@ -140,16 +140,14 @@ def _preview_calibration(
 def _hypothesis_selection_key(
     result: BayesianCalibrationResult,
 ) -> tuple[float, float]:
-    """Rank basins by broad data agreement before the robust posterior tie-break.
+    """Rank converged basins by full posterior, then data RMS.
 
-    The Cauchy objective is intentionally forgiving of large residuals during MAP
-    refinement, but that makes it a poor sole score for choosing between geometry
-    hypotheses: a wrong basin can obtain a low robust cost by down-weighting the
-    measurements that disagree with it. The standardized data RMS keeps those
-    measurements visible during basin selection; the robust posterior remains the
-    tie-break and the final optimization still uses the requested likelihood.
+    Geometry and source positions can trade off while explaining the same TDOAs,
+    so raw TDOA RMS alone is not a reliable self-calibration discriminator. The
+    posterior includes the source-motion and metric priors that distinguish those
+    basins; normalized data RMS is used only as a deterministic tie-break.
     """
-    return result.normalized_data_rms, result.negative_log_posterior
+    return result.negative_log_posterior, result.normalized_data_rms
 
 
 def _solve_from_event_multistarts(
@@ -202,7 +200,12 @@ def _solve_from_event_multistarts(
         except (ValueError, np.linalg.LinAlgError):
             pass
 
-    scales = (1.0, 1.25, 1.6) if microphone_count <= 12 else (0.9, 1.2)
+    # The maximum observed pairwise range difference is only a lower bound on the
+    # microphone baseline. Sparse source coverage can leave a substantial scale
+    # gap, especially for planar/one-sided trajectories, so keep a wider scale set
+    # near the minimum microphone count instead of asking one MDS scale to stand in
+    # for the whole independent initialization family.
+    scales = (0.9, 1.0, 1.15, 1.3, 1.5, 1.8, 2.1) if microphone_count <= 12 else (0.9, 1.2)
     try:
         candidates.extend(
             ("baseline", microphones0, sources0)
@@ -220,6 +223,7 @@ def _solve_from_event_multistarts(
 
     preview_budget = min(max_nfev, 250)
     previews: list[tuple[str, BayesianCalibrationResult]] = []
+    preview_likelihood = "gaussian" if likelihood == "cauchy" else likelihood
     for family, microphones0, sources0 in candidates:
         try:
             preview = _preview_calibration(
@@ -228,7 +232,7 @@ def _solve_from_event_multistarts(
                 sigma=sigma,
                 speed_of_sound=speed_of_sound,
                 motion_velocity_change_sigma_mps=motion_velocity_change_sigma_mps,
-                likelihood=likelihood,
+                likelihood=preview_likelihood,
                 estimate_clock_offsets=estimate_clock_offsets,
                 estimate_clock_drifts=estimate_clock_drifts,
                 estimate_speed_of_sound=estimate_speed_of_sound,
@@ -260,18 +264,24 @@ def _solve_from_event_multistarts(
             compute_laplace_uncertainty=compute_laplace_uncertainty,
         )
 
-    # Preserve one seed from every construction family through full refinement.
-    # Similar subset hypotheses must not crowd out the legacy global solution or
-    # the independent lower-bound/MDS route during a short robust preview.
+    # Gaussian continuation keeps large residuals active while the geometry basin
+    # settles. Preserve the low-rank construction families, then carry several
+    # independently scaled MDS basins through the requested robust MAP solve.
     previews.sort(key=lambda item: _hypothesis_selection_key(item[1]))
-    family_order = ("global_low_rank", "subset_low_rank", "baseline")
-    finalist_target = 3 if microphone_count <= 12 else 2
     seeds: list[BayesianCalibrationResult] = []
-    for family in family_order:
+    for family in ("global_low_rank", "subset_low_rank"):
         for preview_family, preview in previews:
             if preview_family == family:
                 seeds.append(preview)
                 break
+
+    baseline_previews = [
+        preview for preview_family, preview in previews if preview_family == "baseline"
+    ]
+    baseline_keep = 3 if microphone_count <= 12 else 1
+    seeds.extend(baseline_previews[:baseline_keep])
+
+    finalist_target = 5 if microphone_count <= 12 else 2
     for _, preview in previews:
         if any(preview is seed for seed in seeds):
             continue
