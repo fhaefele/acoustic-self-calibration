@@ -20,9 +20,8 @@ from acoustic_self_calibration.tdoa import make_microphone_pairs
 
 
 def load_scene():
-    namespace: dict[str, object] = {}
+    namespace: dict[str, object] = {"__name__": "diagnostic_test_helpers"}
     source = open("tests/test_end_to_end_audio.py", encoding="utf-8").read()
-    # Execute the test helper file so the diagnostic uses the exact regression scene.
     exec(compile(source, "tests/test_end_to_end_audio.py", "exec"), namespace)
     return namespace["_myotis_layout_pulsed_scene"]()
 
@@ -134,7 +133,6 @@ def main() -> None:
     )
     metric_rms = float(np.sqrt(np.mean((euclidean_ranges - latent_ranges) ** 2)))
 
-    # Use the detected event channel as the independent reference when available.
     reference = int(measurements.event_channel)
     selected: list[int] = []
     for microphone in range(microphone_count):
