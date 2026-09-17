@@ -33,7 +33,7 @@ def _write_scene(path: Path, *, offset: float = 0.0) -> Path:
     )
 
 
-def test_calibrate_subcommand_parses_short_output_and_reference() -> None:
+def test_calibrate_subcommand_parses_event_options_and_reference() -> None:
     args = build_parser().parse_args(
         [
             "calibrate",
@@ -42,6 +42,12 @@ def test_calibrate_subcommand_parses_short_output_and_reference() -> None:
             "run01",
             "-r",
             "truth.json",
+            "--event-channel",
+            "2",
+            "--event-min-gap-ms",
+            "2.5",
+            "--tdoa-candidates",
+            "6",
             "--estimate-speed-of-sound",
             "--distance-prior",
             "0,1,1.234,0.002",
@@ -50,6 +56,9 @@ def test_calibrate_subcommand_parses_short_output_and_reference() -> None:
     assert args.command == "calibrate"
     assert args.output == Path("run01")
     assert args.reference == Path("truth.json")
+    assert args.event_channel == 2
+    assert args.event_min_gap_ms == pytest.approx(2.5)
+    assert args.tdoa_candidates == 6
     assert args.estimate_speed_of_sound is True
     assert len(args.distance_prior) == 1
     prior = args.distance_prior[0]
@@ -57,6 +66,11 @@ def test_calibrate_subcommand_parses_short_output_and_reference() -> None:
     assert prior.microphone_b == 1
     assert prior.distance_m == pytest.approx(1.234)
     assert prior.sigma_m == pytest.approx(0.002)
+
+
+def test_calibrate_rejects_removed_uniform_frame_options() -> None:
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["calibrate", "recording.wav", "--frame-size", "1024"])
 
 
 def test_calibrate_rejects_malformed_distance_prior() -> None:
