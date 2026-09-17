@@ -52,7 +52,7 @@ def calibration_result_to_dict(
                 "std_m": _optional_list(calibration.microphone_position_std_m),
             },
             "source": {
-                "times_s": result.frame_times_s.tolist(),
+                "times_s": result.event_times_s.tolist(),
                 "positions_m": calibration.source_positions.tolist(),
                 "std_m": _optional_list(calibration.source_position_std_m),
             },
@@ -70,7 +70,12 @@ def calibration_result_to_dict(
             "clock_drift_std": _optional_list(calibration.clock_drift_std),
         },
         "measurements": {
+            "event_channel": result.event_channel,
+            "detected_event_count": result.detected_event_count,
+            "event_samples": result.event_samples.tolist(),
             "microphone_pairs": [list(pair) for pair in result.microphone_pairs],
+            "arrival_delays_s": result.arrival_delays_s.tolist(),
+            "arrival_confidence": result.arrival_confidence.tolist(),
             "tdoa_s": result.tdoa_s.tolist(),
             "tdoa_sigma_s": result.tdoa_sigma_s.tolist(),
             "confidence": result.confidence.tolist(),
