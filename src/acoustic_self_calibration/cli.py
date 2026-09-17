@@ -67,8 +67,8 @@ def _add_solver_options(parser: argparse.ArgumentParser) -> None:
     model.add_argument("--likelihood", choices=("cauchy", "gaussian"), default="cauchy")
     model.add_argument("--speed-of-sound", type=float, default=343.0)
     model.add_argument("--motion-sigma-mps", type=float, default=5.0)
-    model.add_argument("--best-sigma-samples", type=float, default=1.0)
-    model.add_argument("--worst-sigma-samples", type=float, default=12.0)
+    model.add_argument("--best-sigma-samples", type=float, default=0.35)
+    model.add_argument("--worst-sigma-samples", type=float, default=4.0)
     model.add_argument("--max-nfev", type=int, default=4000)
 
     clocks = parser.add_argument_group("clocks and metric scale")
