@@ -32,10 +32,15 @@ def _result() -> AudioCalibrationResult:
     )
     return AudioCalibrationResult(
         calibration=calibration,
-        frame_times_s=np.array([0.1, 0.2]),
+        event_times_s=np.array([0.1, 0.2]),
+        event_samples=np.array([100, 200]),
+        event_channel=0,
+        detected_event_count=2,
         tdoa_s=np.zeros((2, 3)),
         tdoa_sigma_s=np.full((2, 3), 2e-6),
         confidence=np.ones((2, 3)),
+        arrival_delays_s=np.zeros((2, 4)),
+        arrival_confidence=np.ones((2, 4)),
         microphone_pairs=((0, 1), (0, 2), (0, 3)),
     )
 
@@ -45,7 +50,7 @@ def test_write_calibration_outputs_writes_only_json_and_png(tmp_path: Path) -> N
         _result(),
         tmp_path / "calibration",
         input_wav_path="recording.wav",
-        settings={"frame_size": 1024},
+        settings={"event_min_gap_s": 0.003},
     )
 
     assert paths.json.exists()
@@ -60,7 +65,9 @@ def test_write_calibration_outputs_writes_only_json_and_png(tmp_path: Path) -> N
     assert document["schema_version"] == 1
     assert document["scene_role"] == "estimate"
     assert document["input"]["wav_path"] == "recording.wav"
-    assert document["settings"]["frame_size"] == 1024
+    assert document["settings"]["event_min_gap_s"] == 0.003
+    assert document["measurements"]["event_channel"] == 0
+    assert document["measurements"]["event_samples"] == [100, 200]
     assert len(document["scene"]["microphones"]["positions_m"]) == 4
     assert len(document["scene"]["source"]["std_m"]) == 2
     assert "evaluation" not in document
@@ -91,7 +98,7 @@ def test_write_calibration_outputs_adds_ground_truth_evaluation(tmp_path: Path) 
     result = _result()
     ground_truth = GroundTruth(
         microphone_positions_m=result.calibration.microphone_positions.copy(),
-        source_times_s=result.frame_times_s.copy(),
+        source_times_s=result.event_times_s.copy(),
         source_positions_m=result.calibration.source_positions.copy(),
         metadata={"name": "exact"},
     )
@@ -131,10 +138,15 @@ def test_write_calibration_outputs_uses_json_null_for_missing_uncertainty(tmp_pa
     )
     result = AudioCalibrationResult(
         calibration=without_uncertainty,
-        frame_times_s=result.frame_times_s,
+        event_times_s=result.event_times_s,
+        event_samples=result.event_samples,
+        event_channel=result.event_channel,
+        detected_event_count=result.detected_event_count,
         tdoa_s=result.tdoa_s,
         tdoa_sigma_s=result.tdoa_sigma_s,
         confidence=result.confidence,
+        arrival_delays_s=result.arrival_delays_s,
+        arrival_confidence=result.arrival_confidence,
         microphone_pairs=result.microphone_pairs,
     )
     paths = write_calibration_outputs(result, tmp_path / "without_uncertainty")
