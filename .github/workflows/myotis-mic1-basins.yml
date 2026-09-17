@@ -1,0 +1,61 @@
+name: Myotis mic1 basin diagnostics
+
+on:
+  push:
+    branches:
+      - diagnostic/myotis-mic1-basins
+
+jobs:
+  diagnose:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: global
+            kind: global
+            value: "0"
+          - label: subset-0
+            kind: subset
+            value: "0"
+          - label: subset-1
+            kind: subset
+            value: "1"
+          - label: subset-2
+            kind: subset
+            value: "2"
+          - label: subset-3
+            kind: subset
+            value: "3"
+          - label: mds-0.9
+            kind: mds
+            value: "0.9"
+          - label: mds-1.0
+            kind: mds
+            value: "1.0"
+          - label: mds-1.15
+            kind: mds
+            value: "1.15"
+          - label: mds-1.3
+            kind: mds
+            value: "1.3"
+          - label: mds-1.5
+            kind: mds
+            value: "1.5"
+          - label: mds-1.8
+            kind: mds
+            value: "1.8"
+          - label: mds-2.1
+            kind: mds
+            value: "2.1"
+    name: ${{ matrix.label }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: diagnostic/myotis-mic1-basins
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.15"
+      - run: uv python install 3.12
+      - run: uv sync --locked --all-groups --python 3.12
+      - run: uv run python tools/myotis_mic1_basin_diagnostic.py ${{ matrix.kind }} ${{ matrix.value }}
