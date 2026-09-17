@@ -55,8 +55,7 @@ def _reference_star_range_differences(
                 break
         else:
             raise ValueError(
-                "low-rank initialization requires a TDOA edge between mic 0 and "
-                f"mic {microphone}"
+                f"low-rank initialization requires a TDOA edge between mic 0 and mic {microphone}"
             )
     return float(speed_of_sound) * star
 
