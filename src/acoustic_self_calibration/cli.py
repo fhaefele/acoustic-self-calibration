@@ -29,24 +29,46 @@ def _distance_prior(value: str) -> DistancePrior:
 
 
 def _add_solver_options(parser: argparse.ArgumentParser) -> None:
-    audio = parser.add_argument_group("audio and TDOA")
-    audio.add_argument("--frame-size", type=int, default=1024)
-    audio.add_argument("--hop-size", type=int, default=4096)
-    audio.add_argument("--max-tau-ms", type=float, default=30.0)
-    audio.add_argument("--gcc-interp", type=int, default=16)
-    audio.add_argument(
+    events = parser.add_argument_group("event detection")
+    events.add_argument(
+        "--event-channel",
+        type=int,
+        help="microphone channel used to detect events (default: choose automatically)",
+    )
+    events.add_argument("--event-smooth-ms", type=float, default=0.3)
+    events.add_argument("--event-min-gap-ms", type=float, default=3.0)
+    events.add_argument(
+        "--event-prominence",
+        type=float,
+        default=0.003,
+        help="minimum peak prominence as a fraction of the strongest event",
+    )
+
+    tdoa = parser.add_argument_group("event TDOA association")
+    tdoa.add_argument("--max-tau-ms", type=float, default=10.0)
+    tdoa.add_argument("--tdoa-envelope-ms", type=float, default=0.08)
+    tdoa.add_argument("--tdoa-template-ms", type=float, default=1.8)
+    tdoa.add_argument("--tdoa-candidates", type=int, default=8)
+    tdoa.add_argument(
+        "--max-tdoa-rate",
+        type=float,
+        default=0.05,
+        help="maximum expected delay change rate in seconds per second",
+    )
+    tdoa.add_argument("--tdoa-track-weight", type=float, default=0.4)
+    tdoa.add_argument(
         "--pair-mode",
         choices=("reference", "redundant", "all"),
-        default="redundant",
+        default="reference",
     )
-    audio.add_argument("--reference-count", type=int, default=2)
+    tdoa.add_argument("--reference-count", type=int, default=2)
 
     model = parser.add_argument_group("model and solver")
     model.add_argument("--likelihood", choices=("cauchy", "gaussian"), default="cauchy")
     model.add_argument("--speed-of-sound", type=float, default=343.0)
-    model.add_argument("--motion-sigma-mps", type=float, default=3.0)
-    model.add_argument("--best-sigma-samples", type=float, default=0.35)
-    model.add_argument("--worst-sigma-samples", type=float, default=4.0)
+    model.add_argument("--motion-sigma-mps", type=float, default=5.0)
+    model.add_argument("--best-sigma-samples", type=float, default=1.0)
+    model.add_argument("--worst-sigma-samples", type=float, default=12.0)
     model.add_argument("--max-nfev", type=int, default=4000)
 
     clocks = parser.add_argument_group("clocks and metric scale")
@@ -73,7 +95,7 @@ def _add_solver_options(parser: argparse.ArgumentParser) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="asc",
-        description="Bayesian 3-D acoustic self-calibration and scene comparison.",
+        description="Bayesian 3-D acoustic self-calibration from discrete sound events.",
     )
     parser.add_argument(
         "--version",
@@ -84,8 +106,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     calibrate = subparsers.add_parser(
         "calibrate",
-        help="calibrate a multichannel WAV recording",
-        description="Calibrate a microphone array and moving source from a multichannel WAV file.",
+        help="calibrate from transient events in a multichannel WAV",
+        description=(
+            "Detect transient emissions, associate their TDOAs across channels, and jointly "
+            "calibrate microphone geometry and one source position per event."
+        ),
     )
     calibrate.add_argument("wav", type=Path, help="input multichannel WAV file")
     calibrate.add_argument(
@@ -130,10 +155,16 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _settings_dict(args: argparse.Namespace) -> dict[str, Any]:
     return {
-        "frame_size": args.frame_size,
-        "hop_size": args.hop_size,
+        "event_channel": args.event_channel,
+        "event_smooth_s": args.event_smooth_ms / 1000.0,
+        "event_min_gap_s": args.event_min_gap_ms / 1000.0,
+        "event_relative_prominence": args.event_prominence,
         "max_tau_s": args.max_tau_ms / 1000.0,
-        "gcc_interp": args.gcc_interp,
+        "tdoa_envelope_smooth_s": args.tdoa_envelope_ms / 1000.0,
+        "tdoa_template_s": args.tdoa_template_ms / 1000.0,
+        "tdoa_candidate_count": args.tdoa_candidates,
+        "max_tdoa_rate": args.max_tdoa_rate,
+        "tdoa_track_weight": args.tdoa_track_weight,
         "pair_mode": args.pair_mode,
         "reference_count": args.reference_count,
         "likelihood": args.likelihood,
@@ -166,10 +197,16 @@ def _run_calibrate(args: argparse.Namespace) -> int:
     reference = None if args.reference is None else validate_ground_truth_json(args.reference)
     result = calibrate_wav(
         args.wav,
-        frame_size=args.frame_size,
-        hop_size=args.hop_size,
+        event_channel=args.event_channel,
+        event_smooth_s=args.event_smooth_ms / 1000.0,
+        event_min_gap_s=args.event_min_gap_ms / 1000.0,
+        event_relative_prominence=args.event_prominence,
         max_tau_s=args.max_tau_ms / 1000.0,
-        gcc_interp=args.gcc_interp,
+        tdoa_envelope_smooth_s=args.tdoa_envelope_ms / 1000.0,
+        tdoa_template_s=args.tdoa_template_ms / 1000.0,
+        tdoa_candidate_count=args.tdoa_candidates,
+        max_tdoa_rate=args.max_tdoa_rate,
+        tdoa_track_weight=args.tdoa_track_weight,
         pair_mode=args.pair_mode,
         reference_count=args.reference_count,
         speed_of_sound=args.speed_of_sound,
@@ -194,7 +231,10 @@ def _run_calibrate(args: argparse.Namespace) -> int:
     calibration = result.calibration
     print(f"success: {calibration.success}")
     print(f"microphones: {len(calibration.microphone_positions)}")
-    print(f"source states: {len(calibration.source_positions)}")
+    print(
+        f"events: {len(result.event_times_s)} used / {result.detected_event_count} detected "
+        f"on channel {result.event_channel}"
+    )
     print(f"TDOA RMS residual: {1e6 * calibration.rms_tdoa_residual_s:.3f} us")
     print(f"JSON: {paths.json}")
     print(f"figure: {paths.figure}")
