@@ -61,8 +61,8 @@ def calibrate_audio(
     estimate_clock_drifts: bool = False,
     estimate_speed_of_sound: bool = False,
     distance_priors: Sequence[DistancePrior] = (),
-    best_sigma_samples: float = 1.0,
-    worst_sigma_samples: float = 12.0,
+    best_sigma_samples: float = 0.35,
+    worst_sigma_samples: float = 4.0,
     max_nfev: int = 4000,
     compute_laplace_uncertainty: bool = True,
 ) -> AudioCalibrationResult:
