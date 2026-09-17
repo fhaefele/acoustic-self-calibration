@@ -59,7 +59,7 @@ def _add_solver_options(parser: argparse.ArgumentParser) -> None:
     tdoa.add_argument(
         "--pair-mode",
         choices=("reference", "redundant", "all"),
-        default="reference",
+        default="redundant",
     )
     tdoa.add_argument("--reference-count", type=int, default=2)
 
