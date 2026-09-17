@@ -44,6 +44,60 @@ class AudioCalibrationResult:
         return self.event_times_s
 
 
+def _spanning_tree_measurements(
+    measurements: EventTDOAMeasurements,
+    sigma: np.ndarray,
+    microphone_count: int,
+) -> tuple[EventTDOAMeasurements, np.ndarray]:
+    """Keep one independent TDOA edge per microphone-tree connection.
+
+    Event pairwise TDOAs are derived from the same per-channel arrival delays, so
+    cycles in the requested graph are exactly linearly dependent and their errors
+    are correlated. Feeding every edge to a diagonal-noise MAP model overcounts
+    those arrivals and can pull the geometry into a lower-residual but incorrect
+    basin. A deterministic spanning tree preserves all microphones without
+    double-counting cycle constraints. Default pair order yields the mic-0 star.
+    """
+    values = np.asarray(sigma, dtype=float)
+    if values.shape != measurements.tdoa_s.shape:
+        raise ValueError("sigma must match event TDOA measurements")
+
+    parent = list(range(microphone_count))
+
+    def find(index: int) -> int:
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    selected: list[int] = []
+    for column, (a, b) in enumerate(measurements.microphone_pairs):
+        root_a = find(a)
+        root_b = find(b)
+        if root_a == root_b:
+            continue
+        parent[root_b] = root_a
+        selected.append(column)
+        if len(selected) == microphone_count - 1:
+            break
+
+    if len(selected) != microphone_count - 1:
+        raise ValueError("microphone_pairs must connect every microphone")
+
+    indices = np.asarray(selected, dtype=int)
+    independent = EventTDOAMeasurements(
+        event_samples=measurements.event_samples,
+        event_times_s=measurements.event_times_s,
+        event_channel=measurements.event_channel,
+        arrival_delays_s=measurements.arrival_delays_s,
+        arrival_confidence=measurements.arrival_confidence,
+        tdoa_s=measurements.tdoa_s[:, indices],
+        confidence=measurements.confidence[:, indices],
+        microphone_pairs=tuple(measurements.microphone_pairs[index] for index in selected),
+    )
+    return independent, values[:, indices]
+
+
 def _reference_star_range_differences(
     measurements: EventTDOAMeasurements,
     microphone_count: int,
@@ -165,6 +219,11 @@ def _solve_from_event_multistarts(
     max_nfev: int,
     compute_laplace_uncertainty: bool,
 ) -> BayesianCalibrationResult:
+    solver_measurements, solver_sigma = _spanning_tree_measurements(
+        measurements,
+        sigma,
+        microphone_count,
+    )
     candidates: list[tuple[str, np.ndarray, np.ndarray]] = []
 
     # Retain the strongest full-data rank-three solution as its own family. This
@@ -211,9 +270,9 @@ def _solve_from_event_multistarts(
             ("baseline", microphones0, sources0)
             for microphones0, sources0 in event_initial_scene_candidates(
                 measurements.arrival_delays_s,
-                measurements.tdoa_s,
-                sigma,
-                measurements.microphone_pairs,
+                solver_measurements.tdoa_s,
+                solver_sigma,
+                solver_measurements.microphone_pairs,
                 speed_of_sound=speed_of_sound,
                 scale_candidates=scales,
             )
@@ -227,9 +286,9 @@ def _solve_from_event_multistarts(
     for family, microphones0, sources0 in candidates:
         try:
             preview = _preview_calibration(
-                measurements,
+                solver_measurements,
                 microphone_count,
-                sigma=sigma,
+                sigma=solver_sigma,
                 speed_of_sound=speed_of_sound,
                 motion_velocity_change_sigma_mps=motion_velocity_change_sigma_mps,
                 likelihood=preview_likelihood,
@@ -248,11 +307,11 @@ def _solve_from_event_multistarts(
 
     if not previews:
         return calibrate_bayesian(
-            measurements.tdoa_s,
-            measurements.event_times_s,
+            solver_measurements.tdoa_s,
+            solver_measurements.event_times_s,
             microphone_count,
-            tdoa_sigma_s=sigma,
-            microphone_pairs=measurements.microphone_pairs,
+            tdoa_sigma_s=solver_sigma,
+            microphone_pairs=solver_measurements.microphone_pairs,
             speed_of_sound=speed_of_sound,
             estimate_speed_of_sound=estimate_speed_of_sound,
             estimate_clock_offsets=estimate_clock_offsets,
@@ -293,11 +352,11 @@ def _solve_from_event_multistarts(
     finalists: list[BayesianCalibrationResult] = []
     for seed in seeds:
         finalist = calibrate_bayesian(
-            measurements.tdoa_s,
-            measurements.event_times_s,
+            solver_measurements.tdoa_s,
+            solver_measurements.event_times_s,
             microphone_count,
-            tdoa_sigma_s=sigma,
-            microphone_pairs=measurements.microphone_pairs,
+            tdoa_sigma_s=solver_sigma,
+            microphone_pairs=solver_measurements.microphone_pairs,
             speed_of_sound=speed_of_sound,
             estimate_speed_of_sound=estimate_speed_of_sound,
             estimate_clock_offsets=estimate_clock_offsets,
