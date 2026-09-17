@@ -9,6 +9,28 @@ from acoustic_self_calibration.ground_truth import GroundTruth
 from acoustic_self_calibration.pipeline import AudioCalibrationResult
 
 
+def _audio_result(
+    calibration: BayesianCalibrationResult,
+    times: np.ndarray,
+    pairs: tuple[tuple[int, int], ...],
+) -> AudioCalibrationResult:
+    event_count = len(times)
+    microphone_count = len(calibration.microphone_positions)
+    return AudioCalibrationResult(
+        calibration=calibration,
+        event_times_s=np.asarray(times, dtype=float),
+        event_samples=np.arange(event_count, dtype=int),
+        event_channel=0,
+        detected_event_count=event_count,
+        tdoa_s=np.zeros((event_count, len(pairs))),
+        tdoa_sigma_s=np.full((event_count, len(pairs)), 2e-6),
+        confidence=np.ones((event_count, len(pairs))),
+        arrival_delays_s=np.zeros((event_count, microphone_count)),
+        arrival_confidence=np.ones((event_count, microphone_count)),
+        microphone_pairs=pairs,
+    )
+
+
 def _result_and_truth() -> tuple[AudioCalibrationResult, GroundTruth]:
     ground_truth_mics = np.array(
         [[0.0, 0.0, 0.0], [1.2, 0.0, 0.1], [0.1, 1.0, 0.0], [0.2, 0.3, 1.1]]
@@ -46,14 +68,8 @@ def _result_and_truth() -> tuple[AudioCalibrationResult, GroundTruth]:
         message="ok",
         nfev=10,
     )
-    result = AudioCalibrationResult(
-        calibration=calibration,
-        frame_times_s=gt_times.copy(),
-        tdoa_s=np.zeros((4, 3)),
-        tdoa_sigma_s=np.full((4, 3), 2e-6),
-        confidence=np.ones((4, 3)),
-        microphone_pairs=((0, 1), (0, 2), (0, 3)),
-    )
+    pairs = ((0, 1), (0, 2), (0, 3))
+    result = _audio_result(calibration, gt_times.copy(), pairs)
     truth = GroundTruth(
         microphone_positions_m=ground_truth_mics,
         source_times_s=gt_times,
@@ -79,18 +95,12 @@ def test_evaluation_interpolates_source_ground_truth_to_estimate_times() -> None
     result, truth = _result_and_truth()
     source_std = result.calibration.source_position_std_m
     assert source_std is not None
-    result = AudioCalibrationResult(
-        calibration=replace(
-            result.calibration,
-            source_positions=result.calibration.source_positions[[0, 2]],
-            source_position_std_m=source_std[[0, 2]],
-        ),
-        frame_times_s=np.array([0.0, 1.0]),
-        tdoa_s=np.zeros((2, 3)),
-        tdoa_sigma_s=np.full((2, 3), 2e-6),
-        confidence=np.ones((2, 3)),
-        microphone_pairs=result.microphone_pairs,
+    reduced_calibration = replace(
+        result.calibration,
+        source_positions=result.calibration.source_positions[[0, 2]],
+        source_position_std_m=source_std[[0, 2]],
     )
+    result = _audio_result(reduced_calibration, np.array([0.0, 1.0]), result.microphone_pairs)
     evaluation = evaluate_against_ground_truth(result, truth)
     assert np.allclose(
         evaluation.ground_truth_source_at_estimate_times_m,
