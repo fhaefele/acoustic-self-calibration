@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from itertools import permutations
 
 import numpy as np
 from scipy.optimize import least_squares, minimize
@@ -44,11 +45,31 @@ def free_microphone_parameter_count(microphone_count: int) -> int:
     return 6 + 3 * max(0, microphone_count - 4)
 
 
+def _affine_metric_starts() -> list[np.ndarray]:
+    """Deterministic starts for the affine-to-Euclidean metric upgrade.
+
+    The rank factorization is only defined up to an arbitrary invertible 3-D
+    transform. A single identity start can be far from the Euclidean metric when
+    the singular directions are strongly anisotropic, so try permutations of a
+    moderate anisotropic scaling as well as identity.
+    """
+    starts = [np.eye(3)]
+    starts.extend(np.diag(values) for values in sorted(set(permutations((0.5, 1.0, 4.0)))))
+    return starts
+
+
 def low_rank_initial_scene(
     observed_range_differences: np.ndarray,
     position_bound_m: float,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Initialize a 3-D scene from range-difference data."""
+    """Initialize a 3-D scene from range-difference data.
+
+    Unknown source-to-reference ranges are fitted so the doubly centered squared
+    cross-distance matrix is rank three. The resulting factors are upgraded from
+    affine to Euclidean geometry with several deterministic metric starts; this is
+    important because the SVD factors can be highly anisotropic even for a
+    well-conditioned physical scene.
+    """
     observed = np.asarray(observed_range_differences, dtype=float)
     if observed.ndim != 2:
         raise ValueError("observed_range_differences must have shape (frames, microphones-1)")
@@ -111,8 +132,6 @@ def low_rank_initial_scene(
     left = u[:, :3] * root[None, :]
     right = vt[:3].T * root[None, :]
 
-    affine_initial = np.concatenate([np.eye(3).reshape(-1), np.zeros(3)])
-
     def affine_unpack(parameters: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         transform = parameters[:9].reshape(3, 3)
         try:
@@ -132,13 +151,25 @@ def low_rank_initial_scene(
         regularizer = 1e-4 * (parameters[:9].reshape(3, 3) - np.eye(3)).reshape(-1)
         return np.concatenate([data, regularizer])
 
-    affine_fit = least_squares(
-        affine_residual,
-        affine_initial,
-        loss="soft_l1",
-        f_scale=0.05,
-        max_nfev=1500,
-    )
+    affine_fits = []
+    data_count = squared.size
+    for transform0 in _affine_metric_starts():
+        affine_initial = np.concatenate([transform0.reshape(-1), np.zeros(3)])
+        fit = least_squares(
+            affine_residual,
+            affine_initial,
+            loss="soft_l1",
+            f_scale=0.05,
+            max_nfev=800,
+        )
+        residual = affine_residual(fit.x)[:data_count]
+        score = float(np.dot(residual, residual))
+        if np.isfinite(score):
+            affine_fits.append((score, fit))
+
+    if not affine_fits:
+        raise ValueError("low-rank metric upgrade failed to produce a finite scene")
+    _, affine_fit = min(affine_fits, key=lambda item: item[0])
     microphones, sources, offset = affine_unpack(affine_fit.x)
     return canonicalize_scene(microphones + offset, sources)
 
@@ -225,16 +256,16 @@ def event_initial_scene_candidates(
     *,
     speed_of_sound: float,
     position_bound_m: float = 30.0,
-    scale_candidates: Sequence[float] = (0.55, 0.75, 1.0),
+    scale_candidates: Sequence[float] = (1.0, 1.25, 1.6),
 ) -> list[tuple[np.ndarray, np.ndarray]]:
     """Build coarse event-calibration starts from TDOA baseline lower bounds.
 
     For a moving source, the maximum observed absolute TDOA for a microphone pair
     is a lower bound on that microphone baseline. Classical MDS on these bounds
     gives a useful coarse array shape without assuming any microphone ordering.
-    Several scale hypotheses are retained because finite source coverage generally
-    underestimates the true baselines. Source points are then hyperbolically
-    localized against each array hypothesis before joint MAP refinement.
+    Scale hypotheses are therefore at or above one: finite source coverage usually
+    underestimates, rather than overestimates, the true baselines. Source points are
+    then hyperbolically localized before joint MAP refinement.
     """
     arrival = np.asarray(arrival_delays_s, dtype=float)
     tau = np.asarray(tdoa_s, dtype=float)
