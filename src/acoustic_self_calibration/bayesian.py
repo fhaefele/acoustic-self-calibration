@@ -7,13 +7,7 @@ import numpy as np
 from scipy.optimize import least_squares
 from scipy.sparse import lil_matrix
 
-from .geometry import canonicalize_scene
-from .initialization import (
-    free_microphone_parameter_count,
-    low_rank_initial_scene,
-    pack_geometry,
-    unpack_geometry,
-)
+from .initialization import low_rank_initial_scene
 
 
 @dataclass(frozen=True)
@@ -57,38 +51,22 @@ def tdoa_sigma_from_confidence(
     floor_quantile: float = 0.1,
     ceiling_quantile: float = 0.9,
 ) -> np.ndarray:
-    """Convert relative GCC peak confidence to timing standard deviations.
-
-    GCC peak magnitude is not itself a calibrated probability. This mapping is a
-    pragmatic heteroscedastic model and should eventually be replaced by a delay
-    error model calibrated on the actual hardware and acoustic environment.
-    """
+    """Convert relative TDOA confidence to timing standard deviations."""
     values = np.asarray(confidence, dtype=float)
     if values.ndim != 2:
-        raise ValueError("confidence must have shape (frames, measurements)")
+        raise ValueError("confidence must have shape (events, measurements)")
     finite = values[np.isfinite(values)]
     if finite.size == 0:
         raise ValueError("confidence contains no finite values")
     lo = float(np.quantile(finite, floor_quantile))
     hi = float(np.quantile(finite, ceiling_quantile))
     quality = (
-        np.ones_like(values) if hi <= lo + 1e-15 else np.clip((values - lo) / (hi - lo), 0.0, 1.0)
+        np.ones_like(values)
+        if hi <= lo + 1e-15
+        else np.clip((values - lo) / (hi - lo), 0.0, 1.0)
     )
     sigma_samples = worst_sigma_samples - quality * (worst_sigma_samples - best_sigma_samples)
     return sigma_samples / float(sample_rate)
-
-
-def _mic_parameter_indices(index: int) -> tuple[int, ...]:
-    if index == 0:
-        return ()
-    if index == 1:
-        return (0,)
-    if index == 2:
-        return (1, 2)
-    if index == 3:
-        return (3, 4, 5)
-    start = 6 + 3 * (index - 4)
-    return (start, start + 1, start + 2)
 
 
 def _validate_pairs(
@@ -115,7 +93,6 @@ def _reference_star(
     pairs: Sequence[tuple[int, int]],
     mic_count: int,
 ) -> np.ndarray:
-    """Extract 0->j measurements needed by the low-rank initializer."""
     out = np.empty((tau.shape[0], mic_count - 1), dtype=float)
     for microphone in range(1, mic_count):
         for column, (a, b) in enumerate(pairs):
@@ -135,6 +112,52 @@ def _reference_star(
 
 def _metric_scale_is_anchored(priors: Sequence[DistancePrior]) -> bool:
     return any(prior.distance_m > 0 and prior.sigma_m > 0 for prior in priors)
+
+
+def _gauge_anchors(microphones: np.ndarray) -> tuple[int, int]:
+    """Choose two well-separated microphones to define the rigid-body gauge.
+
+    Microphone 0 remains the timing/spatial origin. The first anchor is the
+    microphone farthest from it. The second maximizes triangle area with that
+    baseline, so arbitrary input ordering and initially collinear channels do not
+    make the optimizer gauge singular. The microphones may still be fully planar.
+    """
+    microphones = np.asarray(microphones, dtype=float)
+    origin = microphones[0]
+    vectors = microphones - origin
+    distance = np.linalg.norm(vectors, axis=1)
+    anchor_x = int(np.argmax(distance))
+    if anchor_x == 0 or distance[anchor_x] <= 1e-8:
+        raise ValueError("microphone initialization has no non-zero baseline")
+
+    area = np.linalg.norm(np.cross(vectors[anchor_x], vectors), axis=1)
+    area[[0, anchor_x]] = -np.inf
+    anchor_xy = int(np.argmax(area))
+    scale = max(float(distance[anchor_x]), 1.0)
+    if not np.isfinite(area[anchor_xy]) or area[anchor_xy] <= 1e-8 * scale * scale:
+        raise ValueError("microphone initialization is collinear; 3-D calibration needs area")
+    return anchor_x, anchor_xy
+
+
+def _canonicalize_with_anchors(
+    microphones: np.ndarray,
+    sources: np.ndarray,
+    anchor_x: int,
+    anchor_xy: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    microphones = np.asarray(microphones, dtype=float)
+    sources = np.asarray(sources, dtype=float)
+    origin = microphones[0]
+
+    ex = microphones[anchor_x] - origin
+    ex = ex / np.linalg.norm(ex)
+    b = microphones[anchor_xy] - origin
+    b_perp = b - np.dot(b, ex) * ex
+    ey = b_perp / np.linalg.norm(b_perp)
+    ez = np.cross(ex, ey)
+    ez = ez / np.linalg.norm(ez)
+    basis = np.stack([ex, ey, ez], axis=1)
+    return (microphones - origin) @ basis, (sources - origin) @ basis
 
 
 def calibrate_bayesian(
@@ -165,25 +188,28 @@ def calibrate_bayesian(
 ) -> BayesianCalibrationResult:
     """Joint Bayesian/MAP calibration of microphone geometry and source motion.
 
-    TDOA column `(a, b)` means `arrival[b] - arrival[a]`. The data model is
-    heteroscedastic; optional Gaussian factors model smooth source motion, clock
-    offset/drift, sound speed, and known microphone distances. Robust mode uses
-    Cauchy IRLS weights only on TDOA data factors so Gaussian priors stay Gaussian.
+    TDOA column ``(a, b)`` means ``arrival[b] - arrival[a]``. Geometry uses a
+    full-coordinate parameterization with six numerical gauge constraints chosen
+    from well-separated microphones. This avoids assuming that microphones 0, 1,
+    2, and 3 themselves form a non-degenerate 3-D basis and therefore supports
+    planar arrays and arrays whose first channels are collinear.
     """
     tau = np.asarray(tdoa_matrix, dtype=float)
     times = np.asarray(frame_times_s, dtype=float).reshape(-1)
     if tau.ndim != 2:
-        raise ValueError("tdoa_matrix must have shape (frames, measurements)")
-    frame_count, measurement_count = tau.shape
+        raise ValueError("tdoa_matrix must have shape (events, measurements)")
+    event_count, measurement_count = tau.shape
     pairs = _validate_pairs(microphone_pairs, mic_count)
     if measurement_count != len(pairs):
         raise ValueError("tdoa_matrix columns must match microphone_pairs")
-    if len(times) != frame_count or np.any(np.diff(times) <= 0):
-        raise ValueError("frame_times_s must match frames and be strictly increasing")
-    if frame_count < 4 or mic_count < 4:
-        raise ValueError("At least 4 microphones and 4 source frames are required")
+    if len(times) != event_count or np.any(np.diff(times) <= 0):
+        raise ValueError("frame_times_s must match events and be strictly increasing")
+    if event_count < 4 or mic_count < 4:
+        raise ValueError("At least 4 microphones and 4 source events are required")
     if likelihood not in {"gaussian", "cauchy"}:
         raise ValueError("likelihood must be 'gaussian' or 'cauchy'")
+    if position_bound_m <= 0:
+        raise ValueError("position_bound_m must be positive")
     if estimate_speed_of_sound and not _metric_scale_is_anchored(distance_priors):
         raise ValueError(
             "Estimating speed of sound requires at least one DistancePrior to fix metric scale"
@@ -199,12 +225,26 @@ def calibrate_bayesian(
         star = _reference_star(tau, pairs, mic_count)
         microphones0, sources0 = low_rank_initial_scene(speed_of_sound * star, position_bound_m)
     elif initial_microphones is not None and initial_sources is not None:
-        microphones0, sources0 = canonicalize_scene(initial_microphones, initial_sources)
+        microphones0 = np.asarray(initial_microphones, dtype=float)
+        sources0 = np.asarray(initial_sources, dtype=float)
+        if microphones0.shape != (mic_count, 3):
+            raise ValueError("initial_microphones must have shape (mic_count, 3)")
+        if sources0.shape != (event_count, 3):
+            raise ValueError("initial_sources must have shape (events, 3)")
     else:
         raise ValueError("Provide both initial_microphones and initial_sources, or neither")
 
-    mic_parameter_count = free_microphone_parameter_count(mic_count)
-    geometry_count = mic_parameter_count + 3 * frame_count
+    anchor_x, anchor_xy = _gauge_anchors(microphones0)
+    microphones0, sources0 = _canonicalize_with_anchors(
+        microphones0,
+        sources0,
+        anchor_x,
+        anchor_xy,
+    )
+
+    microphone_slice = slice(0, 3 * mic_count)
+    source_slice = slice(microphone_slice.stop, microphone_slice.stop + 3 * event_count)
+    geometry_count = source_slice.stop
     cursor = geometry_count
     log_c_index = cursor if estimate_speed_of_sound else None
     cursor += int(estimate_speed_of_sound)
@@ -227,52 +267,57 @@ def calibrate_bayesian(
             raise ValueError("initial_clock_drifts must have shape (mic_count,)")
         drifts0 = candidate - candidate[0]
 
-    initial_parts = [pack_geometry(microphones0, sources0)]
+    parts = [microphones0.reshape(-1), sources0.reshape(-1)]
     if estimate_speed_of_sound:
-        initial_parts.append(np.array([np.log(speed_of_sound)]))
+        parts.append(np.array([np.log(speed_of_sound)]))
     if estimate_clock_offsets:
-        initial_parts.append(offsets0[1:])
+        parts.append(offsets0[1:])
     if estimate_clock_drifts:
-        initial_parts.append(drifts0[1:])
-    x0 = np.concatenate(initial_parts)
+        parts.append(drifts0[1:])
+    x0 = np.concatenate(parts)
 
     lower = np.full(parameter_count, -np.inf)
     upper = np.full(parameter_count, np.inf)
     lower[:geometry_count] = -position_bound_m
     upper[:geometry_count] = position_bound_m
-    for index in (0, 2, 5):
-        lower[index] = 1e-4
+    lower[3 * anchor_x] = 1e-5
+    lower[3 * anchor_xy + 1] = 1e-5
     if log_c_index is not None:
         lower[log_c_index] = np.log(250.0)
         upper[log_c_index] = np.log(450.0)
 
     centered_times = times - float(np.mean(times))
     dt = np.diff(times)
+    gauge_sigma_m = 1e-6
 
     def decode(x: np.ndarray) -> tuple[np.ndarray, np.ndarray, float, np.ndarray, np.ndarray]:
-        microphones, sources = unpack_geometry(x[:geometry_count], mic_count, frame_count)
+        microphones = x[microphone_slice].reshape(mic_count, 3)
+        sources = x[source_slice].reshape(event_count, 3)
         c = float(np.exp(x[log_c_index])) if log_c_index is not None else float(speed_of_sound)
-        offsets = np.zeros(mic_count)
+        offsets = np.zeros(mic_count, dtype=float)
         if offset_slice is not None:
             offsets[1:] = x[offset_slice]
-        drifts = np.zeros(mic_count)
+        drifts = np.zeros(mic_count, dtype=float)
         if drift_slice is not None:
             drifts[1:] = x[drift_slice]
         return microphones, sources, c, offsets, drifts
 
-    def factor_residuals(x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    def factor_residuals(x: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         microphones, sources, c, offsets, drifts = decode(x)
         prediction = np.empty_like(tau)
         for column, (a, b) in enumerate(pairs):
             da = np.linalg.norm(sources - microphones[a], axis=1)
             db = np.linalg.norm(sources - microphones[b], axis=1)
             prediction[:, column] = (
-                (db - da) / c + offsets[b] - offsets[a] + (drifts[b] - drifts[a]) * centered_times
+                (db - da) / c
+                + offsets[b]
+                - offsets[a]
+                + (drifts[b] - drifts[a]) * centered_times
             )
         standardized = (prediction - tau) / sigma
 
         priors: list[np.ndarray] = []
-        if motion_velocity_change_sigma_mps is not None and frame_count >= 3:
+        if motion_velocity_change_sigma_mps is not None and event_count >= 3:
             velocity = np.diff(sources, axis=0) / dt[:, None]
             acceleration_like = velocity[1:] - velocity[:-1]
             priors.append((acceleration_like / float(motion_velocity_change_sigma_mps)).reshape(-1))
@@ -285,34 +330,54 @@ def calibrate_bayesian(
         for prior in distance_priors:
             if prior.sigma_m <= 0:
                 raise ValueError("DistancePrior sigma_m must be positive")
+            if not (
+                0 <= prior.microphone_a < mic_count
+                and 0 <= prior.microphone_b < mic_count
+                and prior.microphone_a != prior.microphone_b
+            ):
+                raise ValueError("DistancePrior microphone index is invalid")
             distance = np.linalg.norm(
                 microphones[prior.microphone_a] - microphones[prior.microphone_b]
             )
             priors.append(np.array([(distance - prior.distance_m) / prior.sigma_m]))
-        return standardized, np.concatenate(priors) if priors else np.empty(0)
+        physical = np.concatenate(priors) if priors else np.empty(0)
 
-    data_rows = frame_count * measurement_count
+        gauge = np.array(
+            [
+                microphones[0, 0],
+                microphones[0, 1],
+                microphones[0, 2],
+                microphones[anchor_x, 1],
+                microphones[anchor_x, 2],
+                microphones[anchor_xy, 2],
+            ],
+            dtype=float,
+        ) / gauge_sigma_m
+        return standardized, physical, gauge
+
+    data_rows = event_count * measurement_count
     motion_rows = (
-        3 * (frame_count - 2)
-        if motion_velocity_change_sigma_mps is not None and frame_count >= 3
+        3 * (event_count - 2)
+        if motion_velocity_change_sigma_mps is not None and event_count >= 3
         else 0
     )
-    prior_rows = (
+    physical_rows = (
         motion_rows
         + int(log_c_index is not None)
         + (mic_count - 1 if offset_slice is not None else 0)
         + (mic_count - 1 if drift_slice is not None else 0)
         + len(distance_priors)
     )
-    sparsity = lil_matrix((data_rows + prior_rows, parameter_count), dtype=int)
-    for frame in range(frame_count):
-        source_columns = range(mic_parameter_count + 3 * frame, mic_parameter_count + 3 * frame + 3)
+    gauge_rows = 6
+    sparsity = lil_matrix((data_rows + physical_rows + gauge_rows, parameter_count), dtype=int)
+
+    for event in range(event_count):
+        source_columns = list(range(source_slice.start + 3 * event, source_slice.start + 3 * event + 3))
         for pair_index, (a, b) in enumerate(pairs):
-            row = frame * measurement_count + pair_index
-            sparsity[row, list(source_columns)] = 1
-            for microphone in (a, b):
-                for column in _mic_parameter_indices(microphone):
-                    sparsity[row, column] = 1
+            row = event * measurement_count + pair_index
+            sparsity[row, source_columns] = 1
+            sparsity[row, list(range(3 * a, 3 * a + 3))] = 1
+            sparsity[row, list(range(3 * b, 3 * b + 3))] = 1
             if log_c_index is not None:
                 sparsity[row, log_c_index] = 1
             if offset_slice is not None:
@@ -328,10 +393,10 @@ def calibrate_bayesian(
 
     row = data_rows
     if motion_rows:
-        for frame in range(1, frame_count - 1):
-            columns = []
-            for source_frame in (frame - 1, frame, frame + 1):
-                start = mic_parameter_count + 3 * source_frame
+        for event in range(1, event_count - 1):
+            columns: list[int] = []
+            for source_event in (event - 1, event, event + 1):
+                start = source_slice.start + 3 * source_event
                 columns.extend(range(start, start + 3))
             sparsity[row : row + 3, columns] = 1
             row += 3
@@ -347,17 +412,28 @@ def calibrate_bayesian(
             sparsity[row, column] = 1
             row += 1
     for prior in distance_priors:
-        for microphone in (prior.microphone_a, prior.microphone_b):
-            for column in _mic_parameter_indices(microphone):
-                sparsity[row, column] = 1
+        sparsity[row, list(range(3 * prior.microphone_a, 3 * prior.microphone_a + 3))] = 1
+        sparsity[row, list(range(3 * prior.microphone_b, 3 * prior.microphone_b + 3))] = 1
+        row += 1
+
+    gauge_columns = (
+        0,
+        1,
+        2,
+        3 * anchor_x + 1,
+        3 * anchor_x + 2,
+        3 * anchor_xy + 2,
+    )
+    for column in gauge_columns:
+        sparsity[row, column] = 1
         row += 1
     sparsity = sparsity.tocsr()
 
     data_weights = np.ones_like(tau)
 
     def residual(x: np.ndarray) -> np.ndarray:
-        data, priors = factor_residuals(x)
-        return np.concatenate([(np.sqrt(data_weights) * data).reshape(-1), priors])
+        data, priors, gauge = factor_residuals(x)
+        return np.concatenate([(np.sqrt(data_weights) * data).reshape(-1), priors, gauge])
 
     current = np.clip(x0, lower + 1e-12, upper - 1e-12)
     fit = None
@@ -383,7 +459,7 @@ def calibrate_bayesian(
         total_nfev += int(fit.nfev)
         if likelihood == "gaussian":
             break
-        standardized, _ = factor_residuals(current)
+        standardized, _, _ = factor_residuals(current)
         new_weights = np.clip(1.0 / (1.0 + standardized * standardized), 1e-6, 1.0)
         if float(np.max(np.abs(new_weights - data_weights))) < 1e-3:
             data_weights[:] = new_weights
@@ -392,7 +468,7 @@ def calibrate_bayesian(
 
     assert fit is not None
     microphones, sources, c, offsets, drifts = decode(fit.x)
-    normalized, priors = factor_residuals(fit.x)
+    normalized, priors, _ = factor_residuals(fit.x)
     raw = normalized * sigma
 
     microphone_std = None
@@ -402,60 +478,20 @@ def calibrate_bayesian(
     drift_std = None
     if compute_laplace_uncertainty:
         jacobian = fit.jac.toarray() if hasattr(fit.jac, "toarray") else np.asarray(fit.jac)
-        hessian = jacobian.T @ jacobian
-        source_indices = np.arange(mic_parameter_count, geometry_count)
-        global_indices = np.concatenate(
-            [
-                np.arange(mic_parameter_count),
-                np.arange(geometry_count, parameter_count),
-            ]
-        )
-        hgg = hessian[np.ix_(global_indices, global_indices)]
-        hgq = None
-        hqq_inverse = None
-        if source_indices.size:
-            hgq = hessian[np.ix_(global_indices, source_indices)]
-            hqq = hessian[np.ix_(source_indices, source_indices)]
-            hqq_inverse = np.linalg.pinv(hqq, rcond=1e-10)
-            information = hgg - hgq @ hqq_inverse @ hgq.T
-        else:
-            information = hgg
-        global_covariance = np.linalg.pinv(information, rcond=1e-10)
-        diagonal = np.clip(np.diag(global_covariance), 0.0, np.inf)
-
-        if source_indices.size and hgq is not None and hqq_inverse is not None:
-            coupling = hqq_inverse @ hgq.T
-            source_variance = np.diag(hqq_inverse) + np.einsum(
-                "ij,jk,ik->i",
-                coupling,
-                global_covariance,
-                coupling,
-                optimize=True,
-            )
-            source_std = np.sqrt(np.clip(source_variance, 0.0, np.inf)).reshape(frame_count, 3)
-
-        microphone_std = np.zeros((mic_count, 3))
-        for microphone in range(1, mic_count):
-            for local_index, parameter_index in enumerate(_mic_parameter_indices(microphone)):
-                if microphone == 1:
-                    dimension = 0
-                elif microphone == 2:
-                    dimension = (0, 1)[local_index]
-                elif microphone == 3:
-                    dimension = (0, 1, 2)[local_index]
-                else:
-                    dimension = local_index
-                microphone_std[microphone, dimension] = np.sqrt(diagonal[parameter_index])
-        nuisance_cursor = mic_parameter_count
+        covariance = np.linalg.pinv(jacobian.T @ jacobian, rcond=1e-10)
+        diagonal = np.clip(np.diag(covariance), 0.0, np.inf)
+        microphone_std = np.sqrt(diagonal[microphone_slice]).reshape(mic_count, 3)
+        source_std = np.sqrt(diagonal[source_slice]).reshape(event_count, 3)
+        nuisance_cursor = geometry_count
         if log_c_index is not None:
             c_std = float(c * np.sqrt(diagonal[nuisance_cursor]))
             nuisance_cursor += 1
         if offset_slice is not None:
-            offset_std = np.zeros(mic_count)
+            offset_std = np.zeros(mic_count, dtype=float)
             offset_std[1:] = np.sqrt(diagonal[nuisance_cursor : nuisance_cursor + mic_count - 1])
             nuisance_cursor += mic_count - 1
         if drift_slice is not None:
-            drift_std = np.zeros(mic_count)
+            drift_std = np.zeros(mic_count, dtype=float)
             drift_std[1:] = np.sqrt(diagonal[nuisance_cursor : nuisance_cursor + mic_count - 1])
 
     data_cost = (
