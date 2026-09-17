@@ -49,14 +49,14 @@ def _spanning_tree_measurements(
     sigma: np.ndarray,
     microphone_count: int,
 ) -> tuple[EventTDOAMeasurements, np.ndarray]:
-    """Keep one independent TDOA edge per microphone-tree connection.
+    """Keep a minimum-uncertainty independent TDOA spanning tree.
 
     Event pairwise TDOAs are derived from the same per-channel arrival delays, so
     cycles in the requested graph are exactly linearly dependent and their errors
     are correlated. Feeding every edge to an uncorrected diagonal-noise MAP model
-    overcounts those arrivals. A deterministic spanning tree gives an independent
-    preview objective while the final MAP can still use normalized redundant edges.
-    Default pair order yields the mic-0 star.
+    overcounts those arrivals. Kruskal selection using each edge's mean timing
+    variance retains the most informative independent tree without privileging a
+    particular reference microphone.
     """
     values = np.asarray(sigma, dtype=float)
     if values.shape != measurements.tdoa_s.shape:
@@ -71,7 +71,10 @@ def _spanning_tree_measurements(
         return index
 
     selected: list[int] = []
-    for column, (a, b) in enumerate(measurements.microphone_pairs):
+    edge_order = np.argsort(np.mean(values * values, axis=0), kind="stable")
+    for column_value in edge_order:
+        column = int(column_value)
+        a, b = measurements.microphone_pairs[column]
         root_a = find(a)
         root_b = find(b)
         if root_a == root_b:
@@ -224,11 +227,8 @@ def _solve_from_event_multistarts(
         sigma,
         microphone_count,
     )
-    independent_edge_count = microphone_count - 1
-    redundant_edge_count = len(measurements.microphone_pairs)
-    redundancy_scale = np.sqrt(redundant_edge_count / independent_edge_count)
     solver_measurements = measurements
-    solver_sigma = np.asarray(sigma, dtype=float) * redundancy_scale
+    solver_sigma = np.asarray(sigma, dtype=float)
     candidates: list[tuple[str, np.ndarray, np.ndarray]] = []
 
     # Retain the strongest full-data rank-three solution as its own family. This
@@ -284,6 +284,13 @@ def _solve_from_event_multistarts(
         )
     except (ValueError, np.linalg.LinAlgError):
         pass
+
+    # Pairwise event TDOAs share per-channel arrival estimates, so cycle edges are
+    # correlated observations. Retain the redundant graph for coarse MDS candidate
+    # construction, but use the minimum-uncertainty independent tree for both the
+    # continuation preview and the final MAP objective.
+    solver_measurements = preview_measurements
+    solver_sigma = preview_sigma
 
     preview_budget = min(max_nfev, 250)
     previews: list[tuple[str, BayesianCalibrationResult]] = []
