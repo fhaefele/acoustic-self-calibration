@@ -70,6 +70,7 @@ def test_evaluation_uses_one_microphone_fitted_transform_for_entire_scene() -> N
     assert evaluation.source_rms_error_m < 1e-12
     assert np.allclose(evaluation.aligned_microphone_positions_m, truth.microphone_positions_m)
     assert np.allclose(evaluation.aligned_source_positions_m, truth.source_positions_m)
+    assert np.array_equal(evaluation.source_estimate_indices, np.arange(4))
     assert evaluation.microphone_uncertainty_diagnostic is not None
     assert evaluation.source_uncertainty_diagnostic is not None
 
@@ -97,13 +98,37 @@ def test_evaluation_interpolates_source_ground_truth_to_estimate_times() -> None
     )
 
 
-def test_evaluation_rejects_incomplete_ground_truth_time_coverage() -> None:
+def test_evaluation_clips_source_to_reference_time_overlap() -> None:
     result, truth = _result_and_truth()
-    short_truth = GroundTruth(
+    partial_truth = GroundTruth(
         microphone_positions_m=truth.microphone_positions_m,
-        source_times_s=np.array([0.2, 0.8]),
+        source_times_s=np.array([0.5, 1.0]),
         source_positions_m=truth.source_positions_m[[1, 2]],
         metadata={},
     )
-    with pytest.raises(ValueError, match="coverage"):
-        evaluate_against_ground_truth(result, short_truth)
+    evaluation = evaluate_against_ground_truth(result, partial_truth)
+
+    assert evaluation.microphone_rms_error_m < 1e-12
+    assert evaluation.source_rms_error_m < 1e-12
+    assert np.array_equal(evaluation.source_estimate_indices, np.array([1, 2]))
+    assert np.allclose(
+        evaluation.aligned_source_positions_m,
+        truth.source_positions_m[[1, 2]],
+    )
+    assert np.allclose(
+        evaluation.ground_truth_source_at_estimate_times_m,
+        truth.source_positions_m[[1, 2]],
+    )
+    assert evaluation.source_uncertainty_diagnostic is not None
+
+
+def test_evaluation_rejects_non_overlapping_source_time_ranges() -> None:
+    result, truth = _result_and_truth()
+    non_overlapping_truth = GroundTruth(
+        microphone_positions_m=truth.microphone_positions_m,
+        source_times_s=np.array([2.0, 2.5]),
+        source_positions_m=truth.source_positions_m[[0, 1]],
+        metadata={},
+    )
+    with pytest.raises(ValueError, match="do not overlap"):
+        evaluate_against_ground_truth(result, non_overlapping_truth)

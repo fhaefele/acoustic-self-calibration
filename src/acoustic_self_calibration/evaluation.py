@@ -17,6 +17,7 @@ class GroundTruthEvaluation:
     aligned_microphone_positions_m: np.ndarray
     aligned_source_positions_m: np.ndarray
     ground_truth_source_at_estimate_times_m: np.ndarray
+    source_estimate_indices: np.ndarray
     microphone_error_m: np.ndarray
     source_error_m: np.ndarray
     rotation: np.ndarray
@@ -41,13 +42,19 @@ def _summary(error_m: np.ndarray) -> tuple[float, float, float]:
     )
 
 
-def _interpolate_source_ground_truth(ground_truth: GroundTruth, times_s: np.ndarray) -> np.ndarray:
+def _source_overlap_indices(reference: GroundTruth, times_s: np.ndarray) -> np.ndarray:
     times = np.asarray(times_s, dtype=float)
     tolerance = 1e-9
-    if times[0] < ground_truth.source_times_s[0] - tolerance:
-        raise ValueError("estimated source times start before reference source coverage")
-    if times[-1] > ground_truth.source_times_s[-1] + tolerance:
-        raise ValueError("estimated source times extend beyond reference source coverage")
+    start = reference.source_times_s[0] - tolerance
+    stop = reference.source_times_s[-1] + tolerance
+    indices = np.flatnonzero((times >= start) & (times <= stop))
+    if indices.size == 0:
+        raise ValueError("estimated and reference source time ranges do not overlap")
+    return indices
+
+
+def _interpolate_source_ground_truth(ground_truth: GroundTruth, times_s: np.ndarray) -> np.ndarray:
+    times = np.asarray(times_s, dtype=float)
     return np.column_stack(
         [
             np.interp(
@@ -88,7 +95,11 @@ def evaluate_scenes(
     microphone_position_std_m: np.ndarray | None = None,
     source_position_std_m: np.ndarray | None = None,
 ) -> GroundTruthEvaluation:
-    """Align one scene to another using microphones and compare the full scene."""
+    """Align one scene to another using microphones and compare the full scene.
+
+    Microphone metrics always use the complete arrays. Source metrics use only
+    estimated source states whose timestamps fall within reference source coverage.
+    """
     if estimate.microphone_positions_m.shape != reference.microphone_positions_m.shape:
         raise ValueError("reference microphone count must exactly match estimate microphone count")
 
@@ -97,14 +108,25 @@ def evaluate_scenes(
         reference.microphone_positions_m,
         allow_reflection=True,
     )
-    aligned_source = apply_rigid(estimate.source_positions_m, rotation, translation)
-    source_reference = _interpolate_source_ground_truth(reference, estimate.source_times_s)
+
+    source_indices = _source_overlap_indices(reference, estimate.source_times_s)
+    source_times = estimate.source_times_s[source_indices]
+    aligned_source = apply_rigid(
+        estimate.source_positions_m[source_indices],
+        rotation,
+        translation,
+    )
+    source_reference = _interpolate_source_ground_truth(reference, source_times)
 
     microphone_error = np.linalg.norm(
         aligned_microphones - reference.microphone_positions_m,
         axis=1,
     )
     source_error = np.linalg.norm(aligned_source - source_reference, axis=1)
+
+    source_std = None
+    if source_position_std_m is not None:
+        source_std = np.asarray(source_position_std_m, dtype=float)[source_indices]
 
     mic_rms, mic_mean, mic_max = _summary(microphone_error)
     src_rms, src_mean, src_max = _summary(source_error)
@@ -113,6 +135,7 @@ def evaluate_scenes(
         aligned_microphone_positions_m=aligned_microphones,
         aligned_source_positions_m=aligned_source,
         ground_truth_source_at_estimate_times_m=source_reference,
+        source_estimate_indices=source_indices,
         microphone_error_m=microphone_error,
         source_error_m=source_error,
         rotation=rotation,
@@ -130,7 +153,7 @@ def evaluate_scenes(
         ),
         source_uncertainty_diagnostic=_uncertainty_diagnostic(
             source_error,
-            source_position_std_m,
+            source_std,
         ),
     )
 
@@ -174,6 +197,7 @@ def evaluation_to_dict(evaluation: GroundTruthEvaluation) -> dict[str, Any]:
             "uncertainty_diagnostic": evaluation.microphone_uncertainty_diagnostic,
         },
         "source": {
+            "estimate_indices": evaluation.source_estimate_indices.tolist(),
             "aligned_estimate_m": evaluation.aligned_source_positions_m.tolist(),
             "ground_truth_at_estimate_times_m": evaluation.ground_truth_source_at_estimate_times_m.tolist(),
             "error_m": evaluation.source_error_m.tolist(),
