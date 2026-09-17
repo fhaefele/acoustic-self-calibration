@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from itertools import permutations
+from math import comb
 
 import numpy as np
-from scipy.optimize import least_squares, minimize
+from scipy.optimize import OptimizeResult, least_squares, minimize
 
 from .geometry import canonicalize_scene
 
@@ -127,13 +128,7 @@ def _reference_compaction(
     reference_ranges: np.ndarray,
     anchor_event: int,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Return Åström-style double compaction of squared ranges.
-
-    ``differences`` contains range differences to microphone 0. If ``r_j`` is the
-    unknown source-to-mic-0 range, then ``D^2 + 2 D r`` is the squared-distance
-    difference to mic 0. Subtracting one event column removes the remaining row
-    offset. The resulting matrix has rank at most three for a 3-D Euclidean scene.
-    """
+    """Return Åström-style double compaction of squared ranges."""
     adjusted = differences * differences + 2.0 * differences * reference_ranges[None, :]
     columns = np.array(
         [event for event in range(differences.shape[1]) if event != anchor_event],
@@ -160,7 +155,7 @@ def _fit_subset_offsets(
     upper: np.ndarray,
     initial: np.ndarray,
 ) -> np.ndarray:
-    """Numerically solve a small rank-three offset problem on one minimal-ish subset."""
+    """Numerically solve a small rank-three offset problem on one subset."""
 
     def objective(reference_ranges: np.ndarray) -> float:
         return _reference_compaction_score(differences, reference_ranges, 0)
@@ -183,12 +178,7 @@ def _extend_subset_offsets(
     lower: np.ndarray,
     upper: np.ndarray,
 ) -> np.ndarray:
-    """Extend one subset offset hypothesis to every source event.
-
-    This mirrors the extension step in Åström's TDOA RANSAC code: a rank-three
-    basis is estimated from a small subset, then every remaining source offset is
-    solved independently by projecting its compacted column onto that basis.
-    """
+    """Extend one subset offset hypothesis to every source event."""
     restricted = differences[microphone_indices]
     anchor_event = int(event_indices[0])
     reference_ranges = np.maximum(lower.copy(), 0.02)
@@ -197,7 +187,10 @@ def _extend_subset_offsets(
     local = restricted[:, event_indices]
     compacted, _ = _reference_compaction(local, subset_ranges, 0)
     u, singular, _ = np.linalg.svd(compacted, full_matrices=False)
-    rank = min(3, int(np.count_nonzero(singular > singular[0] * 1e-10)) if singular.size else 0)
+    if singular.size == 0 or singular[0] <= 0:
+        return reference_ranges
+    numerical_rank = int(np.count_nonzero(singular > singular[0] * 1e-10))
+    rank = min(3, numerical_rank)
     if rank == 0:
         return reference_ranges
     basis = u[:, :rank]
@@ -227,12 +220,14 @@ def _deterministic_hypothesis_subsets(
     max_hypotheses: int,
 ) -> list[tuple[np.ndarray, np.ndarray]]:
     microphone_count, event_count = differences.shape
-    if microphone_count < 7 or event_count < 6:
+    if microphone_count < 7 or event_count < 6 or max_hypotheses == 0:
         return []
 
     rng = np.random.default_rng(0)
     microphone_size = min(7, microphone_count)
     event_size = min(6, event_count)
+    mic_target = min(max_hypotheses, comb(microphone_count - 1, microphone_size - 1))
+    event_target = min(max_hypotheses, comb(event_count, event_size))
 
     mic_sets: list[np.ndarray] = []
     strength_order = np.argsort(np.std(differences[1:], axis=1))[::-1] + 1
@@ -241,8 +236,10 @@ def _deterministic_hypothesis_subsets(
         np.round(np.linspace(1, microphone_count - 1, microphone_size - 1)).astype(int)
     )
     if len(evenly_spaced_mics) == microphone_size - 1:
-        mic_sets.append(np.concatenate([[0], evenly_spaced_mics]))
-    while len(mic_sets) < max_hypotheses:
+        candidate = np.concatenate([[0], evenly_spaced_mics])
+        if not any(np.array_equal(candidate, existing) for existing in mic_sets):
+            mic_sets.append(candidate)
+    while len(mic_sets) < mic_target:
         selected = np.sort(rng.choice(np.arange(1, microphone_count), microphone_size - 1, replace=False))
         candidate = np.concatenate([[0], selected])
         if not any(np.array_equal(candidate, existing) for existing in mic_sets):
@@ -250,7 +247,7 @@ def _deterministic_hypothesis_subsets(
 
     event_sets: list[np.ndarray] = []
     event_sets.append(np.round(np.linspace(0, event_count - 1, event_size)).astype(int))
-    while len(event_sets) < max_hypotheses:
+    while len(event_sets) < event_target:
         selected = np.sort(rng.choice(np.arange(event_count), event_size, replace=False))
         if not any(np.array_equal(selected, existing) for existing in event_sets):
             event_sets.append(selected)
@@ -298,7 +295,7 @@ def _metric_upgrade_scene(
         regularizer = 1e-4 * (parameters[:9].reshape(3, 3) - np.eye(3)).reshape(-1)
         return np.concatenate([data, regularizer])
 
-    affine_fits: list[tuple[float, object]] = []
+    affine_fits: list[tuple[float, OptimizeResult]] = []
     data_count = squared.size
     for transform0 in _affine_metric_starts():
         affine_initial = np.concatenate([transform0.reshape(-1), np.zeros(3)])
@@ -340,9 +337,8 @@ def low_rank_initial_scene_hypotheses(
     4. bundle-refine all reference ranges against the full low-rank constraint,
     5. perform an affine-to-Euclidean metric upgrade.
 
-    We use deterministic numerical subset solves instead of the original generated
-    minimal polynomial solvers, which keeps this implementation dependency-free
-    while preserving the hypothesis/extension/refinement architecture.
+    Deterministic numerical subset solves replace the original generated minimal
+    polynomial solvers while retaining the hypothesis/extension/refinement design.
     """
     observed = np.asarray(observed_range_differences, dtype=float)
     if observed.ndim != 2:
@@ -352,7 +348,7 @@ def low_rank_initial_scene_hypotheses(
     if microphone_count < 4 or event_count < 4:
         raise ValueError("At least four microphones and four source events are required")
     if max_scene_hypotheses < 1 or subset_hypotheses < 0:
-        raise ValueError("hypothesis counts must be positive")
+        raise ValueError("hypothesis counts are invalid")
 
     differences = np.vstack([np.zeros(event_count), observed.T])
     lower, upper, aperture = _range_bounds(differences, position_bound_m)
