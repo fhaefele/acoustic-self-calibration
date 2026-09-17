@@ -1,0 +1,92 @@
+name: Best reference-star diagnostics
+
+on:
+  push:
+    branches:
+      - diagnostic/best-reference-star
+
+jobs:
+  geometry:
+    strategy:
+      fail-fast: false
+      matrix:
+        case: [m8, m12, m16, m24, myotis, pcm8]
+    name: ${{ matrix.case }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: diagnostic/best-reference-star
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.15"
+      - run: uv python install 3.12
+      - run: uv sync --locked --all-groups --python 3.12
+      - name: Patch best complete reference star
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/acoustic_self_calibration/pipeline.py")
+          text = path.read_text()
+          old = '''    selected: list[int] = []
+              edge_order = np.argsort(np.mean(values * values, axis=0), kind="stable")
+              for column_value in edge_order:
+                  column = int(column_value)
+                  a, b = measurements.microphone_pairs[column]
+                  root_a = find(a)
+                  root_b = find(b)
+                  if root_a == root_b:
+                      continue
+                  parent[root_b] = root_a
+                  selected.append(column)
+                  if len(selected) == microphone_count - 1:
+                      break
+          '''.replace("              ", "    ")
+          new = '''    star_candidates: list[tuple[float, list[int]]] = []
+              for reference in range(microphone_count):
+                  star_columns: list[int] = []
+                  for microphone in range(microphone_count):
+                      if microphone == reference:
+                          continue
+                      for column, (a, b) in enumerate(measurements.microphone_pairs):
+                          if {a, b} == {reference, microphone}:
+                              star_columns.append(column)
+                              break
+                      else:
+                          star_columns.clear()
+                          break
+                  if len(star_columns) == microphone_count - 1:
+                      score = float(np.mean(values[:, star_columns] ** 2))
+                      star_candidates.append((score, star_columns))
+
+              selected: list[int] = min(star_candidates, key=lambda item: item[0])[1] if star_candidates else []
+              if not selected:
+                  edge_order = np.argsort(np.mean(values * values, axis=0), kind="stable")
+                  for column_value in edge_order:
+                      column = int(column_value)
+                      a, b = measurements.microphone_pairs[column]
+                      root_a = find(a)
+                      root_b = find(b)
+                      if root_a == root_b:
+                          continue
+                      parent[root_b] = root_a
+                      selected.append(column)
+                      if len(selected) == microphone_count - 1:
+                          break
+          '''.replace("              ", "    ")
+          if old not in text:
+              raise SystemExit("expected minimum-spanning-tree block not found")
+          path.write_text(text.replace(old, new, 1))
+          PY
+      - name: Run focused regression
+        shell: bash
+        run: |
+          case "${{ matrix.case }}" in
+            m8) uv run pytest -q 'tests/test_end_to_end_audio.py::test_event_pipeline_self_calibrates_rendered_pulsed_source[8]' ;;
+            m12) uv run pytest -q 'tests/test_end_to_end_audio.py::test_event_pipeline_self_calibrates_rendered_pulsed_source[12]' ;;
+            m16) uv run pytest -q 'tests/test_end_to_end_audio.py::test_event_pipeline_self_calibrates_rendered_pulsed_source[16]' ;;
+            m24) uv run pytest -q 'tests/test_end_to_end_audio.py::test_event_pipeline_self_calibrates_rendered_pulsed_source[24]' ;;
+            myotis) uv run pytest -q tests/test_end_to_end_audio.py::test_event_pipeline_self_calibrates_myotis_planar_layout ;;
+            pcm8) uv run pytest -q tests/test_end_to_end_audio.py::test_pcm16_pulsed_wav_pipeline_returns_joint_position_uncertainty ;;
+          esac
