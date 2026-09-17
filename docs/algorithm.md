@@ -11,7 +11,7 @@ For a synchronized multichannel recording it performs:
 2. multi-hypothesis inter-channel delay extraction,
 3. temporally coherent delay-track selection,
 4. cycle-consistent pairwise TDOA construction,
-5. low-rank geometry initialization,
+5. multi-hypothesis low-rank geometry initialization,
 6. joint Bayesian/MAP refinement of microphones and one source state per event,
 7. optional Laplace uncertainty estimation.
 
@@ -51,9 +51,10 @@ region. The search region is wide enough to contain the configured maximum acous
 inter-channel delay.
 
 Instead of taking only the strongest correlation peak, the frontend keeps several
-local peak candidates. This matters for repeated pulses, neighbouring calls,
-periodic waveforms, and reflected arrivals where the locally strongest peak need not
-be the direct-path correspondence.
+local peak candidates. Each selected peak is refined by a local parabolic fit, so the
+tracked lag is not restricted to integer samples. This matters for repeated pulses,
+neighbouring calls, periodic waveforms, and reflected arrivals where the locally
+strongest peak need not be the direct-path correspondence.
 
 For one channel, event `k` therefore has candidates
 
@@ -93,9 +94,10 @@ tau_(a,b) + tau_(b,c) = tau_(a,c).
 This avoids feeding mutually contradictory independently selected pairwise peaks to
 the geometry solver.
 
-The default measurement graph is the microphone-0 reference star. Redundant and all
-pair graphs remain available, but derived pair measurements are statistically
-correlated because they share channel-arrival estimates.
+The default measurement graph is redundant: mic 0 is connected to every other
+microphone and additional edges are taken from a small number of reference channels.
+The pure mic-0 star and the complete graph remain available. Derived pair measurements
+are statistically correlated because they share channel-arrival estimates.
 
 ## State
 
@@ -124,26 +126,63 @@ multipath outliers.
 
 ## Geometric gauge
 
-TDOAs are invariant to a global rigid transform. The optimizer uses a canonical
-gauge:
+TDOAs are invariant to a global rigid transform. The optimizer therefore keeps full
+3-D coordinates for every microphone and imposes six numerical gauge constraints.
+Mic 0 is placed at the origin. From the initialization it chooses a microphone with a
+large baseline to define the `+x` direction and a second microphone maximizing
+triangle area with that baseline to define the `xy` plane.
 
-- mic 0 at `(0,0,0)`,
-- mic 1 on `+x`,
-- mic 2 in the `+xy` half-plane,
-- mic 3 on the `+z` side.
+This removes the six rigid-body degrees of freedom without assuming that channels 0,
+1, 2, and 3 form a non-degenerate tetrahedron. In particular, planar arrays and
+arrays whose first several channels are collinear are supported.
 
-That removes the six rigid-body degrees of freedom and fixes a handedness convention.
+## Low-rank structure-from-sound initialization
 
-## Low-rank initialization
+For mic 0 as a range-difference reference, let `D_ik` denote the measured range
+difference for microphone `i` and event `k`, and let `r_k` be the unknown absolute
+source-to-reference-microphone range. The implied ranges are
 
-Reference-channel range differences are converted into a cross-distance model.
-Unknown source-to-reference ranges are optimized so the doubly centered squared-
-distance matrix is approximately rank three. A rank-3 factorization then gives
-microphone/source coordinates up to an affine ambiguity, which is resolved by fitting
-the recovered cross distances.
+```text
+R_ik = D_ik + r_k.
+```
 
-This gives the nonlinear MAP optimizer a geometry-aware initial point without
-requiring known microphone coordinates.
+After squaring and double-compacting the cross-distance matrix, a Euclidean 3-D scene
+must have rank at most three. The initializer exploits this low-rank structure before
+running the full nonlinear geometry optimizer.
+
+The hypothesis stage follows the structure of the robust TDOA work by Åström and
+collaborators rather than relying on one global local optimum:
+
+1. generate several small receiver/event subsets (7 receivers and 6 events when the
+   data size permits),
+2. solve each subset numerically for its unknown reference ranges by minimizing the
+   rank-3 double-compaction residual,
+3. extend a subset solution to the remaining source events by projecting their
+   compacted columns onto the recovered rank-3 basis,
+4. refine the extended reference ranges against the complete low-rank objective,
+5. keep several distinct range hypotheses rather than only the numerically best one,
+6. factor each rank-3 matrix into microphone/source coordinates up to affine
+   ambiguity,
+7. perform a multi-start affine-to-Euclidean metric upgrade.
+
+This mirrors the hypothesis/extension/bundle-refinement design of Åström's TDOA RANSAC
+code, while using deterministic numerical subset solves instead of the original
+generated minimal polynomial solvers.
+
+A second family of coarse hypotheses is built from the physical lower bound
+
+```text
+||m_i - m_j|| >= c * max_k |tau_k,(i,j)|.
+```
+
+Classical MDS on those lower bounds, with several scale hypotheses followed by
+hyperbolic source localization, provides deliberately different starting basins.
+
+Every resulting Euclidean scene is given a short Bayesian/MAP refinement. The best
+few posterior basins are then fully refined, and the converged solution with the
+lowest posterior objective is retained. This is especially important near the
+minimum useful microphone count, where multiple geometrically different scenes can
+fit similar TDOAs.
 
 ## Motion prior
 
@@ -174,8 +213,9 @@ Gaussian quadratic factors and are not robustified.
 ## Uncertainty
 
 After MAP convergence, a local Laplace approximation uses `J^T J` as the information
-matrix. Source-state blocks are marginalized with a Schur complement before reporting
-uncertainty for microphone positions and optional global nuisance variables.
+matrix. The resulting pseudo-inverse provides local coordinate uncertainty for
+microphones, source states, and optional nuisance parameters. This approximation is
+conditional on the selected correspondence and geometry basin.
 
 ## Scale and sound speed
 
@@ -200,5 +240,8 @@ full joint multipath hypothesis search across all microphones. Strong reverberat
 occlusion, channel-response mismatch, overlapping sources, or missed/extra event
 associations can still cause failure.
 
+Low-rank hypothesis generation reduces sensitivity to one poor initialization, but it
+does not make a weakly observed geometry identifiable. Source motion must provide
+sufficient directional diversity, especially for small or planar microphone arrays.
 Posterior covariance is local and should not be interpreted as a guarantee when the
 correspondence or geometry posterior is multimodal.
