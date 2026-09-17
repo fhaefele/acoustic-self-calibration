@@ -62,7 +62,71 @@ def _pulsed_scene(microphone_count: int):
     return sample_rate, microphones, event_times, source_at_events, audio
 
 
-@pytest.mark.parametrize("microphone_count", [8, 16, 24])
+def _myotis_microphones() -> np.ndarray:
+    return np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [0.4, 0.0, 0.0],
+            [0.8, 0.0, 0.0],
+            [1.2, 0.0, 0.0],
+            [1.6, 0.0, 0.0],
+            [2.0, 0.0, 0.0],
+            [2.4, 0.0, 0.0],
+            [1.2, 0.0, 0.8],
+            [1.2, 0.0, 0.4],
+            [1.2, 0.0, -0.4],
+            [1.2, 0.0, -0.8],
+            [1.2, 0.0, -1.2],
+        ],
+        dtype=float,
+    )
+
+
+def _myotis_layout_pulsed_scene():
+    rng = np.random.default_rng(812)
+    sample_rate = 96_000
+    duration = 2.4
+    microphones = _myotis_microphones()
+    trajectory_times = np.linspace(0.0, duration, 25)
+    progress = trajectory_times / duration
+    trajectory_positions = np.column_stack(
+        [
+            1.03 * (1.0 - progress) ** 1.25,
+            2.70 - 1.90 * progress + 0.08 * np.sin(2.0 * np.pi * progress),
+            -0.25 + 0.23 * progress + 0.02 * np.sin(3.0 * np.pi * progress),
+        ]
+    )
+    event_times = np.linspace(0.25, 2.05, 18)
+    source_signal = broadband_pulse_train(
+        event_times,
+        sample_rate,
+        duration,
+        pulse_duration_s=0.0012,
+        rng=rng,
+    )
+    source_forward = microphones.mean(axis=0)[None, :] - trajectory_positions
+    source_forward /= np.linalg.norm(source_forward, axis=1, keepdims=True)
+    audio = render_moving_source(
+        source_signal,
+        sample_rate,
+        microphones,
+        trajectory_times,
+        trajectory_positions,
+        source_forward=source_forward,
+        radiation_pattern="cardioid",
+        noise_std=8e-6,
+        rng=rng,
+    )
+    source_at_events = np.column_stack(
+        [
+            np.interp(event_times, trajectory_times, trajectory_positions[:, dimension])
+            for dimension in range(3)
+        ]
+    )
+    return sample_rate, microphones, event_times, source_at_events, audio
+
+
+@pytest.mark.parametrize("microphone_count", [8, 12, 16, 24])
 def test_event_pipeline_self_calibrates_rendered_pulsed_source(microphone_count: int) -> None:
     sample_rate, microphones, event_times, true_source, audio = _pulsed_scene(microphone_count)
 
@@ -94,6 +158,37 @@ def test_event_pipeline_self_calibrates_rendered_pulsed_source(microphone_count:
     assert rms_position_error(aligned_microphones, microphones) < 0.15
     assert rms_position_error(aligned_source, true_source) < 0.18
     assert result.calibration.rms_tdoa_residual_s < 60e-6
+
+
+def test_event_pipeline_self_calibrates_myotis_planar_layout() -> None:
+    sample_rate, microphones, event_times, true_source, audio = _myotis_layout_pulsed_scene()
+
+    result = calibrate_audio(
+        audio,
+        sample_rate,
+        event_min_gap_s=0.05,
+        max_tau_s=0.012,
+        tdoa_template_s=0.0018,
+        pair_mode="redundant",
+        reference_count=2,
+        motion_velocity_change_sigma_mps=8.0,
+        likelihood="cauchy",
+        max_nfev=500,
+        compute_laplace_uncertainty=False,
+    )
+
+    aligned_microphones, rotation, translation = rigid_align(
+        result.calibration.microphone_positions,
+        microphones,
+    )
+    aligned_source = apply_rigid(result.calibration.source_positions, rotation, translation)
+
+    assert result.calibration.success
+    assert len(result.event_times_s) == len(event_times)
+    assert result.detected_event_count == len(event_times)
+    assert rms_position_error(aligned_microphones, microphones) < 0.20
+    assert rms_position_error(aligned_source, true_source) < 0.30
+    assert result.calibration.rms_tdoa_residual_s < 45e-6
 
 
 def test_pcm16_pulsed_wav_pipeline_returns_joint_position_uncertainty(tmp_path: Path) -> None:
