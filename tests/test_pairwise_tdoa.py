@@ -1,5 +1,7 @@
 import numpy as np
 
+from acoustic_self_calibration.events import EventTDOAMeasurements
+from acoustic_self_calibration.pipeline import _spanning_tree_measurements
 from acoustic_self_calibration.tdoa import (
     despike_tdoa_tracks,
     estimate_pairwise_tdoa_matrix,
@@ -42,3 +44,29 @@ def test_despike_marks_large_jump():
     clean, mask = despike_tdoa_tracks(tau, fs, kernel_size=5, threshold_samples=10)
     assert mask[10, 0]
     assert abs(clean[10, 0] - 0.0) < 2e-4
+
+
+def test_cycle_dependent_event_tdoas_reduce_to_spanning_tree() -> None:
+    pairs = ((0, 1), (0, 2), (1, 2), (2, 3), (0, 3))
+    tdoa = np.arange(20, dtype=float).reshape(4, 5) * 1e-6
+    sigma = np.full_like(tdoa, 2e-6)
+    measurements = EventTDOAMeasurements(
+        event_samples=np.arange(4),
+        event_times_s=np.arange(4, dtype=float),
+        event_channel=0,
+        arrival_delays_s=np.zeros((4, 4)),
+        arrival_confidence=np.ones((4, 4)),
+        tdoa_s=tdoa,
+        confidence=np.ones_like(tdoa),
+        microphone_pairs=pairs,
+    )
+
+    independent, independent_sigma = _spanning_tree_measurements(
+        measurements,
+        sigma,
+        4,
+    )
+
+    assert independent.microphone_pairs == ((0, 1), (0, 2), (2, 3))
+    assert np.array_equal(independent.tdoa_s, tdoa[:, [0, 1, 3]])
+    assert np.array_equal(independent_sigma, sigma[:, [0, 1, 3]])
