@@ -28,39 +28,19 @@ jobs:
 
           path = Path("src/acoustic_self_calibration/pipeline.py")
           text = path.read_text()
-          old = """    independent_edge_count = microphone_count - 1
-              redundant_edge_count = len(measurements.microphone_pairs)
-              redundancy_scale = np.sqrt(redundant_edge_count / independent_edge_count)
-              solver_measurements = measurements
-              solver_sigma = np.asarray(sigma, dtype=float) * redundancy_scale
-          """.replace("              ", "    ")
-          new = """    # Pairwise event TDOAs are derived from the same per-channel arrival delays.
-              # Cycles are therefore correlated observations, and a scalar normalization of
-              # the redundant graph cannot reproduce their covariance. Use the independent
-              # spanning-tree factors for the final MAP as well as for basin previews.
-              solver_measurements = preview_measurements
-              solver_sigma = preview_sigma
-          """.replace("              ", "    ")
-          if old not in text:
-              raise SystemExit("expected solver measurement block not found")
-          text = text.replace(old, new, 1)
+          marker = "    preview_budget = min(max_nfev, 250)\n"
+          replacement = """    # Pairwise event TDOAs come from shared per-channel arrival delays, so
+    # cycles are correlated observations. A scalar normalization of the redundant
+    # graph cannot reproduce that covariance. Keep the redundant graph for coarse
+    # MDS initialization, but use independent spanning-tree factors for MAP.
+    solver_measurements = preview_measurements
+    solver_sigma = preview_sigma
 
-          old_call = """            for microphones0, sources0 in event_initial_scene_candidates(
-              measurements.arrival_delays_s,
-              solver_measurements.tdoa_s,
-              solver_sigma,
-              solver_measurements.microphone_pairs,
-          """.replace("              ", "                ")
-          new_call = """            for microphones0, sources0 in event_initial_scene_candidates(
-              measurements.arrival_delays_s,
-              measurements.tdoa_s,
-              sigma,
-              measurements.microphone_pairs,
-          """.replace("              ", "                ")
-          if old_call not in text:
-              raise SystemExit("expected baseline initializer block not found")
-          text = text.replace(old_call, new_call, 1)
-          path.write_text(text)
+    preview_budget = min(max_nfev, 250)
+"""
+          if text.count(marker) != 1:
+              raise SystemExit("expected preview budget marker not found exactly once")
+          path.write_text(text.replace(marker, replacement, 1))
           PY
       - name: Focused geometry regressions
         run: >-
