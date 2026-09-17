@@ -1,0 +1,36 @@
+name: Refresh lockfile metadata
+
+on:
+  push:
+    branches: [fix/reference-time-overlap]
+
+permissions:
+  contents: write
+
+jobs:
+  refresh-lock:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/reference-time-overlap
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.15"
+
+      - name: Refresh lockfile
+        run: uv lock
+
+      - name: Commit lockfile metadata
+        run: |
+          if git diff --quiet -- uv.lock; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add uv.lock
+          git commit -m "Refresh lockfile for 0.5.1"
+          git push
