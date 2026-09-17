@@ -27,7 +27,9 @@ def test_detects_pulses_and_recovers_cycle_consistent_delays() -> None:
 
     delays = np.array([21, 0, 37, 12])
     gains = np.array([0.8, 1.2, 0.9, 0.7])
-    audio = np.column_stack([gains[index] * _shift(source, int(delay)) for index, delay in enumerate(delays)])
+    audio = np.column_stack(
+        [gains[index] * _shift(source, int(delay)) for index, delay in enumerate(delays)]
+    )
     audio += rng.normal(scale=1e-4, size=audio.shape)
 
     detection = detect_transient_events(
