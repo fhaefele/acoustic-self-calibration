@@ -61,9 +61,7 @@ def tdoa_sigma_from_confidence(
     lo = float(np.quantile(finite, floor_quantile))
     hi = float(np.quantile(finite, ceiling_quantile))
     quality = (
-        np.ones_like(values)
-        if hi <= lo + 1e-15
-        else np.clip((values - lo) / (hi - lo), 0.0, 1.0)
+        np.ones_like(values) if hi <= lo + 1e-15 else np.clip((values - lo) / (hi - lo), 0.0, 1.0)
     )
     sigma_samples = worst_sigma_samples - quality * (worst_sigma_samples - best_sigma_samples)
     return sigma_samples / float(sample_rate)
@@ -309,10 +307,7 @@ def calibrate_bayesian(
             da = np.linalg.norm(sources - microphones[a], axis=1)
             db = np.linalg.norm(sources - microphones[b], axis=1)
             prediction[:, column] = (
-                (db - da) / c
-                + offsets[b]
-                - offsets[a]
-                + (drifts[b] - drifts[a]) * centered_times
+                (db - da) / c + offsets[b] - offsets[a] + (drifts[b] - drifts[a]) * centered_times
             )
         standardized = (prediction - tau) / sigma
 
@@ -342,17 +337,20 @@ def calibrate_bayesian(
             priors.append(np.array([(distance - prior.distance_m) / prior.sigma_m]))
         physical = np.concatenate(priors) if priors else np.empty(0)
 
-        gauge = np.array(
-            [
-                microphones[0, 0],
-                microphones[0, 1],
-                microphones[0, 2],
-                microphones[anchor_x, 1],
-                microphones[anchor_x, 2],
-                microphones[anchor_xy, 2],
-            ],
-            dtype=float,
-        ) / gauge_sigma_m
+        gauge = (
+            np.array(
+                [
+                    microphones[0, 0],
+                    microphones[0, 1],
+                    microphones[0, 2],
+                    microphones[anchor_x, 1],
+                    microphones[anchor_x, 2],
+                    microphones[anchor_xy, 2],
+                ],
+                dtype=float,
+            )
+            / gauge_sigma_m
+        )
         return standardized, physical, gauge
 
     data_rows = event_count * measurement_count
@@ -372,7 +370,9 @@ def calibrate_bayesian(
     sparsity = lil_matrix((data_rows + physical_rows + gauge_rows, parameter_count), dtype=int)
 
     for event in range(event_count):
-        source_columns = list(range(source_slice.start + 3 * event, source_slice.start + 3 * event + 3))
+        source_columns = list(
+            range(source_slice.start + 3 * event, source_slice.start + 3 * event + 3)
+        )
         for pair_index, (a, b) in enumerate(pairs):
             row = event * measurement_count + pair_index
             sparsity[row, source_columns] = 1
