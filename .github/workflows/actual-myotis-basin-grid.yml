@@ -1,0 +1,35 @@
+name: Actual Myotis basin grid
+
+on:
+  push:
+    branches: [diagnostic/full-myotis-trace]
+
+jobs:
+  basin:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {scale: 0.4, motion: 8.0}
+          - {scale: 0.5, motion: 8.0}
+          - {scale: 0.6, motion: 8.0}
+          - {scale: 0.7, motion: 8.0}
+          - {scale: 0.8, motion: 8.0}
+          - {scale: 0.9, motion: 1.0}
+          - {scale: 0.9, motion: 2.0}
+          - {scale: 0.9, motion: 4.0}
+          - {scale: 1.0, motion: 1.0}
+          - {scale: 1.0, motion: 2.0}
+          - {scale: 1.0, motion: 4.0}
+    name: s${{ matrix.scale }}-m${{ matrix.motion }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: diagnostic/full-myotis-trace
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.15"
+      - run: uv python install 3.12
+      - run: uv sync --locked --all-groups --python 3.12
+      - run: PYTHONPATH=. uv run python tools/actual_myotis_basin_grid.py '${{ matrix.scale }}' '${{ matrix.motion }}'
