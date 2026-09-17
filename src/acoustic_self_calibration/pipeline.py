@@ -12,7 +12,13 @@ from .bayesian import (
     tdoa_sigma_from_confidence,
 )
 from .events import EventTDOAMeasurements, detect_transient_events, estimate_event_tdoas
-from .initialization import event_initial_scene_candidates, low_rank_initial_scene_hypotheses
+from .initialization import (
+    _fit_global_reference_ranges,
+    _metric_upgrade_scene,
+    _range_bounds,
+    event_initial_scene_candidates,
+    low_rank_initial_scene_hypotheses,
+)
 from .tdoa import make_microphone_pairs
 
 
@@ -60,6 +66,41 @@ def _reference_star_range_differences(
     return float(speed_of_sound) * star
 
 
+def _global_low_rank_initial_scene(
+    observed_range_differences: np.ndarray,
+    position_bound_m: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Retain the pre-hypothesis global rank-three initialization basin.
+
+    The Åström-style subset generator adds useful alternatives, but its compacted
+    rank score is not directly comparable with the full doubly-centered rank
+    objective. Selecting all candidates in one pool can therefore discard the
+    strongest global solution before metric upgrade. Keep that global basin as an
+    explicit hypothesis and let the MAP previews compete it against subset and
+    baseline starts.
+    """
+    observed = np.asarray(observed_range_differences, dtype=float)
+    event_count = observed.shape[0]
+    differences = np.vstack([np.zeros(event_count), observed.T])
+    lower, upper, aperture = _range_bounds(differences, position_bound_m)
+
+    fits: list[tuple[float, np.ndarray]] = []
+    for multiplier in (0.25, 0.75, 1.5, 3.0):
+        initial = np.clip(lower + multiplier * aperture, lower, upper)
+        score, reference_ranges = _fit_global_reference_ranges(
+            differences,
+            initial,
+            lower,
+            upper,
+        )
+        if np.isfinite(score):
+            fits.append((score, reference_ranges))
+    if not fits:
+        raise ValueError("global low-rank initialization did not produce a finite range fit")
+    _, reference_ranges = min(fits, key=lambda item: item[0])
+    return _metric_upgrade_scene(differences, reference_ranges)
+
+
 def _preview_calibration(
     measurements: EventTDOAMeasurements,
     microphone_count: int,
@@ -104,7 +145,7 @@ def _hypothesis_selection_key(
     The Cauchy objective is intentionally forgiving of large residuals during MAP
     refinement, but that makes it a poor sole score for choosing between geometry
     hypotheses: a wrong basin can obtain a low robust cost by down-weighting the
-    measurements that disagree with it.  The standardized data RMS keeps those
+    measurements that disagree with it. The standardized data RMS keeps those
     measurements visible during basin selection; the robust posterior remains the
     tie-break and the final optimization still uses the requested likelihood.
     """
@@ -128,28 +169,38 @@ def _solve_from_event_multistarts(
 ) -> BayesianCalibrationResult:
     candidates: list[tuple[str, np.ndarray, np.ndarray]] = []
 
-    # Use the low-rank TDOA structure as the primary initializer for smaller and
-    # medium arrays. It generates several subset/extension hypotheses in the style
-    # of Åström's TDOA RANSAC pipeline before the nonlinear MAP stage.
+    # Retain the strongest full-data rank-three solution as its own family. This
+    # was the useful basin before subset hypotheses were added and must not be
+    # eliminated by a compacted-rank surrogate score.
+    star: np.ndarray | None = None
     try:
         star = _reference_star_range_differences(
             measurements,
             microphone_count,
             speed_of_sound,
         )
-        low_rank_count = 4 if microphone_count <= 12 else 2
-        subset_count = 8 if microphone_count <= 12 else 4
-        candidates.extend(
-            ("low_rank", microphones0, sources0)
-            for microphones0, sources0 in low_rank_initial_scene_hypotheses(
-                star,
-                30.0,
-                max_scene_hypotheses=low_rank_count,
-                subset_hypotheses=subset_count,
-            )
-        )
+        microphones0, sources0 = _global_low_rank_initial_scene(star, 30.0)
+        candidates.append(("global_low_rank", microphones0, sources0))
     except (ValueError, np.linalg.LinAlgError):
         pass
+
+    # Add the Åström-style subset -> compaction -> extension -> full-rank-refinement
+    # hypotheses. They compete with, rather than replace, the global basin.
+    if star is not None:
+        try:
+            low_rank_count = 4 if microphone_count <= 12 else 2
+            subset_count = 8 if microphone_count <= 12 else 4
+            candidates.extend(
+                ("subset_low_rank", microphones0, sources0)
+                for microphones0, sources0 in low_rank_initial_scene_hypotheses(
+                    star,
+                    30.0,
+                    max_scene_hypotheses=low_rank_count,
+                    subset_hypotheses=subset_count,
+                )
+            )
+        except (ValueError, np.linalg.LinAlgError):
+            pass
 
     scales = (1.0, 1.25, 1.6) if microphone_count <= 12 else (0.9, 1.2)
     try:
@@ -209,13 +260,14 @@ def _solve_from_event_multistarts(
             compute_laplace_uncertainty=compute_laplace_uncertainty,
         )
 
-    # Preserve initializer-family diversity through full refinement. In particular,
-    # several similar low-rank previews must not crowd a useful lower-bound/MDS
-    # basin out merely because the robust preview posterior is slightly smaller.
+    # Preserve one seed from every construction family through full refinement.
+    # Similar subset hypotheses must not crowd out the legacy global solution or
+    # the independent lower-bound/MDS route during a short robust preview.
     previews.sort(key=lambda item: _hypothesis_selection_key(item[1]))
+    family_order = ("global_low_rank", "subset_low_rank", "baseline")
     finalist_target = 3 if microphone_count <= 12 else 2
     seeds: list[BayesianCalibrationResult] = []
-    for family in ("low_rank", "baseline"):
+    for family in family_order:
         for preview_family, preview in previews:
             if preview_family == family:
                 seeds.append(preview)
