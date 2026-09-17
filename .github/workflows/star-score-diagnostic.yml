@@ -1,0 +1,63 @@
+name: Star score diagnostic
+
+on:
+  push:
+    branches: [diagnostic/star-scores]
+
+jobs:
+  myotis:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: diagnostic/star-scores
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.15"
+      - run: uv python install 3.12
+      - run: uv sync --locked --all-groups --python 3.12
+      - name: Print star scores
+        run: |
+          uv run python - <<'PY'
+          import numpy as np
+          from tests.test_end_to_end_audio import _myotis_layout_pulsed_scene
+          from acoustic_self_calibration.events import detect_transient_events, estimate_event_tdoas
+          from acoustic_self_calibration.bayesian import tdoa_sigma_from_confidence
+          from acoustic_self_calibration.tdoa import make_microphone_pairs
+
+          sr, _, _, _, audio = _myotis_layout_pulsed_scene()
+          detection = detect_transient_events(audio, sr, min_gap_s=0.05)
+          pairs = tuple(make_microphone_pairs(12, mode="redundant", reference_count=2))
+          measurements = estimate_event_tdoas(
+              audio,
+              sr,
+              detection.event_samples,
+              detection.event_channel,
+              microphone_pairs=pairs,
+              max_tau_s=0.012,
+              template_s=0.0018,
+          )
+          sigma = tdoa_sigma_from_confidence(
+              measurements.confidence,
+              sr,
+              best_sigma_samples=0.35,
+              worst_sigma_samples=4.0,
+          )
+          print(f"event_channel={detection.event_channel}")
+          for reference in range(12):
+              columns = []
+              for microphone in range(12):
+                  if microphone == reference:
+                      continue
+                  for column, (a, b) in enumerate(pairs):
+                      if {a, b} == {reference, microphone}:
+                          columns.append(column)
+                          break
+                  else:
+                      columns = []
+                      break
+              if columns:
+                  mean_us = 1e6 * float(np.mean(sigma[:, columns]))
+                  rms_us = 1e6 * float(np.sqrt(np.mean(sigma[:, columns] ** 2)))
+                  print(f"reference={reference} mean_sigma_us={mean_us:.9f} rms_sigma_us={rms_us:.9f} columns={columns}")
+          PY
