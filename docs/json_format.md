@@ -51,6 +51,8 @@ Required fields:
 
 `scene_role: "ground_truth"` means measured/simulated truth. `scene_role: "estimate"` means the scene came from an estimator. Both roles can be used as references.
 
+For event-driven calibration, every estimated source entry corresponds to one detected acoustic event. Its `times_s` value is the event timestamp on the selected event-detection channel.
+
 ## Validation
 
 CLI:
@@ -118,10 +120,15 @@ Calibration results use the same core scene with `scene_role: "estimate"` and ma
     "clock_drift_std": null
   },
   "measurements": {
+    "event_channel": 2,
+    "detected_event_count": 1,
+    "event_samples": [4800],
     "microphone_pairs": [[0, 1]],
-    "tdoa_s": [[0.0]],
+    "arrival_delays_s": [[-0.0002, 0.0001]],
+    "arrival_confidence": [[0.98, 1.0]],
+    "tdoa_s": [[0.0003]],
     "tdoa_sigma_s": [[0.000001]],
-    "confidence": [[1.0]]
+    "confidence": [[0.99]]
   },
   "diagnostics": {
     "success": true,
@@ -133,6 +140,22 @@ Calibration results use the same core scene with `scene_role: "estimate"` and ma
   }
 }
 ```
+
+The example above is schematic; a valid 3-D calibration scene contains at least four microphones and at least four source events.
+
+Measurement fields:
+
+- `event_channel`: channel used to define event timestamps.
+- `detected_event_count`: number of transients initially retained by the detector.
+- `event_samples`: sample indices actually used by TDOA estimation and calibration. Events too close to recording boundaries for the configured delay search can be discarded.
+- `arrival_delays_s`: selected per-event, per-channel delays relative to the event channel.
+- `arrival_confidence`: normalized confidence of the selected delay candidate.
+- `microphone_pairs`: oriented microphone pairs used by the geometry solver.
+- `tdoa_s`: pairwise TDOAs derived from the selected arrival delays.
+- `tdoa_sigma_s`: timing uncertainty assigned to each pairwise observation.
+- `confidence`: pairwise confidence derived from the channel-arrival confidences.
+
+Pairwise TDOAs are derived from one arrival-delay vector per event, so they are cycle-consistent by construction.
 
 If uncertainty calculation is disabled, uncertainty fields are JSON `null`.
 
@@ -148,7 +171,7 @@ The first calibration remains `scene_role: "estimate"`, making clear that it is 
 
 When `asc calibrate ... -r REFERENCE` is used, output adds the validated input as `reference` plus an `evaluation` object.
 
-Alignment is fit **only from estimated microphones to reference microphones**. The same transform is applied to the estimated source trajectory; the source is never independently aligned. Reference source positions are linearly interpolated to the estimate timestamps, and reference time coverage must span all estimate times.
+Alignment is fit **only from estimated microphones to reference microphones**. The same transform is applied to the estimated source trajectory; the source is never independently aligned. Reference source positions are linearly interpolated to estimated event timestamps over the time interval where estimate and reference source coverage overlap. Events outside reference source coverage do not contribute to source error metrics; microphone metrics still use the full microphone arrays.
 
 The evaluation reports microphone and source RMS / mean / max position errors and, when calibration uncertainties are available, practical uncertainty-vs-error diagnostics.
 
