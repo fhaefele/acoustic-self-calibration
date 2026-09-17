@@ -12,6 +12,7 @@ from .bayesian import (
     tdoa_sigma_from_confidence,
 )
 from .events import detect_transient_events, estimate_event_tdoas
+from .initialization import event_initial_scene_candidates
 from .tdoa import make_microphone_pairs
 
 
@@ -35,6 +36,99 @@ class AudioCalibrationResult:
     def frame_times_s(self) -> np.ndarray:
         """Compatibility alias; source states are now transient events, not frames."""
         return self.event_times_s
+
+
+def _solve_from_event_multistarts(
+    measurements,
+    microphone_count: int,
+    *,
+    sigma: np.ndarray,
+    speed_of_sound: float,
+    motion_velocity_change_sigma_mps: float | None,
+    likelihood: str,
+    estimate_clock_offsets: bool,
+    estimate_clock_drifts: bool,
+    estimate_speed_of_sound: bool,
+    distance_priors: Sequence[DistancePrior],
+    max_nfev: int,
+    compute_laplace_uncertainty: bool,
+) -> BayesianCalibrationResult:
+    scales = (0.55, 0.75, 1.0) if microphone_count <= 12 else (0.75,)
+    candidates = event_initial_scene_candidates(
+        measurements.arrival_delays_s,
+        measurements.tdoa_s,
+        sigma,
+        measurements.microphone_pairs,
+        speed_of_sound=speed_of_sound,
+        scale_candidates=scales,
+    )
+
+    preview_budget = min(max_nfev, 250)
+    previews: list[BayesianCalibrationResult] = []
+    for microphones0, sources0 in candidates:
+        try:
+            preview = calibrate_bayesian(
+                measurements.tdoa_s,
+                measurements.event_times_s,
+                microphone_count,
+                tdoa_sigma_s=sigma,
+                microphone_pairs=measurements.microphone_pairs,
+                speed_of_sound=speed_of_sound,
+                estimate_speed_of_sound=estimate_speed_of_sound,
+                estimate_clock_offsets=estimate_clock_offsets,
+                estimate_clock_drifts=estimate_clock_drifts,
+                distance_priors=distance_priors,
+                motion_velocity_change_sigma_mps=motion_velocity_change_sigma_mps,
+                initial_microphones=microphones0,
+                initial_sources=sources0,
+                likelihood=likelihood,
+                max_nfev=preview_budget,
+                compute_laplace_uncertainty=False,
+            )
+        except (ValueError, np.linalg.LinAlgError):
+            continue
+        if np.isfinite(preview.negative_log_posterior):
+            previews.append(preview)
+
+    if not previews:
+        return calibrate_bayesian(
+            measurements.tdoa_s,
+            measurements.event_times_s,
+            microphone_count,
+            tdoa_sigma_s=sigma,
+            microphone_pairs=measurements.microphone_pairs,
+            speed_of_sound=speed_of_sound,
+            estimate_speed_of_sound=estimate_speed_of_sound,
+            estimate_clock_offsets=estimate_clock_offsets,
+            estimate_clock_drifts=estimate_clock_drifts,
+            distance_priors=distance_priors,
+            motion_velocity_change_sigma_mps=motion_velocity_change_sigma_mps,
+            likelihood=likelihood,
+            max_nfev=max_nfev,
+            compute_laplace_uncertainty=compute_laplace_uncertainty,
+        )
+
+    best = min(previews, key=lambda result: result.negative_log_posterior)
+    return calibrate_bayesian(
+        measurements.tdoa_s,
+        measurements.event_times_s,
+        microphone_count,
+        tdoa_sigma_s=sigma,
+        microphone_pairs=measurements.microphone_pairs,
+        speed_of_sound=speed_of_sound,
+        estimate_speed_of_sound=estimate_speed_of_sound,
+        estimate_clock_offsets=estimate_clock_offsets,
+        estimate_clock_drifts=estimate_clock_drifts,
+        distance_priors=distance_priors,
+        motion_velocity_change_sigma_mps=motion_velocity_change_sigma_mps,
+        initial_microphones=best.microphone_positions,
+        initial_sources=best.source_positions,
+        initial_clock_offsets_s=best.clock_offsets_s if estimate_clock_offsets else None,
+        initial_clock_drifts=best.clock_drifts if estimate_clock_drifts else None,
+        likelihood=likelihood,
+        max_nfev=max_nfev,
+        compute_laplace_uncertainty=compute_laplace_uncertainty,
+    )
 
 
 def calibrate_audio(
@@ -68,10 +162,10 @@ def calibrate_audio(
 ) -> AudioCalibrationResult:
     """Self-calibrate from discrete broadband/transient emissions in synchronized audio.
 
-    The frontend first detects acoustic events, then retains multiple inter-channel
-    delay hypotheses for each event and tracks a temporally smooth TDOA sequence.
-    One 3-D source state is solved per detected event. Silence between events is not
-    sent to the geometry optimizer.
+    The frontend detects acoustic events and associates their arrivals across the
+    microphones. Geometry initialization uses TDOA-derived microphone baseline
+    lower bounds and several scale hypotheses, followed by robust joint MAP
+    refinement. One 3-D source state is solved per detected event.
     """
     values = np.asarray(audio, dtype=float)
     if values.ndim != 2:
@@ -121,19 +215,17 @@ def calibrate_audio(
         worst_sigma_samples=worst_sigma_samples,
     )
 
-    calibration = calibrate_bayesian(
-        measurements.tdoa_s,
-        measurements.event_times_s,
+    calibration = _solve_from_event_multistarts(
+        measurements,
         microphone_count,
-        tdoa_sigma_s=sigma,
-        microphone_pairs=measurements.microphone_pairs,
+        sigma=sigma,
         speed_of_sound=speed_of_sound,
-        estimate_speed_of_sound=estimate_speed_of_sound,
-        estimate_clock_offsets=estimate_clock_offsets,
-        estimate_clock_drifts=estimate_clock_drifts,
-        distance_priors=distance_priors,
         motion_velocity_change_sigma_mps=motion_velocity_change_sigma_mps,
         likelihood=likelihood,
+        estimate_clock_offsets=estimate_clock_offsets,
+        estimate_clock_drifts=estimate_clock_drifts,
+        estimate_speed_of_sound=estimate_speed_of_sound,
+        distance_priors=distance_priors,
         max_nfev=max_nfev,
         compute_laplace_uncertainty=compute_laplace_uncertainty,
     )
