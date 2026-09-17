@@ -12,7 +12,7 @@ from .bayesian import (
     tdoa_sigma_from_confidence,
 )
 from .events import EventTDOAMeasurements, detect_transient_events, estimate_event_tdoas
-from .initialization import event_initial_scene_candidates
+from .initialization import event_initial_scene_candidates, low_rank_initial_scene_hypotheses
 from .tdoa import make_microphone_pairs
 
 
@@ -36,6 +36,29 @@ class AudioCalibrationResult:
     def frame_times_s(self) -> np.ndarray:
         """Compatibility alias; source states are now transient events, not frames."""
         return self.event_times_s
+
+
+def _reference_star_range_differences(
+    measurements: EventTDOAMeasurements,
+    microphone_count: int,
+    speed_of_sound: float,
+) -> np.ndarray:
+    """Extract mic-0 range differences for low-rank structure-from-sound initialization."""
+    star = np.empty((len(measurements.event_times_s), microphone_count - 1), dtype=float)
+    for microphone in range(1, microphone_count):
+        for column, (a, b) in enumerate(measurements.microphone_pairs):
+            if (a, b) == (0, microphone):
+                star[:, microphone - 1] = measurements.tdoa_s[:, column]
+                break
+            if (a, b) == (microphone, 0):
+                star[:, microphone - 1] = -measurements.tdoa_s[:, column]
+                break
+        else:
+            raise ValueError(
+                "low-rank initialization requires a TDOA edge between mic 0 and "
+                f"mic {microphone}"
+            )
+    return float(speed_of_sound) * star
 
 
 def _preview_calibration(
@@ -89,44 +112,47 @@ def _solve_from_event_multistarts(
     max_nfev: int,
     compute_laplace_uncertainty: bool,
 ) -> BayesianCalibrationResult:
-    scales = (1.0, 1.25, 1.6) if microphone_count <= 12 else (0.75,)
-    candidates = event_initial_scene_candidates(
-        measurements.arrival_delays_s,
-        measurements.tdoa_s,
-        sigma,
-        measurements.microphone_pairs,
-        speed_of_sound=speed_of_sound,
-        scale_candidates=scales,
-    )
+    candidates: list[tuple[np.ndarray, np.ndarray]] = []
+
+    # Use the low-rank TDOA structure as the primary initializer for smaller and
+    # medium arrays. It generates several subset/extension hypotheses in the style
+    # of Åström's TDOA RANSAC pipeline before the nonlinear MAP stage.
+    try:
+        star = _reference_star_range_differences(
+            measurements,
+            microphone_count,
+            speed_of_sound,
+        )
+        low_rank_count = 4 if microphone_count <= 12 else 2
+        subset_count = 8 if microphone_count <= 12 else 4
+        candidates.extend(
+            low_rank_initial_scene_hypotheses(
+                star,
+                30.0,
+                max_scene_hypotheses=low_rank_count,
+                subset_hypotheses=subset_count,
+            )
+        )
+    except (ValueError, np.linalg.LinAlgError):
+        pass
+
+    scales = (1.0, 1.25, 1.6) if microphone_count <= 12 else (0.9, 1.2)
+    try:
+        candidates.extend(
+            event_initial_scene_candidates(
+                measurements.arrival_delays_s,
+                measurements.tdoa_s,
+                sigma,
+                measurements.microphone_pairs,
+                speed_of_sound=speed_of_sound,
+                scale_candidates=scales,
+            )
+        )
+    except (ValueError, np.linalg.LinAlgError):
+        pass
 
     preview_budget = min(max_nfev, 250)
     previews: list[BayesianCalibrationResult] = []
-
-    # For smaller arrays, explicitly compete the rank-constrained structure-from-sound
-    # initializer against the TDOA-lower-bound MDS starts. The low-rank route uses
-    # source-to-reference range offsets and is especially valuable near the minimal
-    # microphone count where the joint objective has more local minima.
-    if microphone_count <= 12:
-        try:
-            preview = _preview_calibration(
-                measurements,
-                microphone_count,
-                sigma=sigma,
-                speed_of_sound=speed_of_sound,
-                motion_velocity_change_sigma_mps=motion_velocity_change_sigma_mps,
-                likelihood=likelihood,
-                estimate_clock_offsets=estimate_clock_offsets,
-                estimate_clock_drifts=estimate_clock_drifts,
-                estimate_speed_of_sound=estimate_speed_of_sound,
-                distance_priors=distance_priors,
-                max_nfev=preview_budget,
-            )
-        except (ValueError, np.linalg.LinAlgError):
-            pass
-        else:
-            if np.isfinite(preview.negative_log_posterior):
-                previews.append(preview)
-
     for microphones0, sources0 in candidates:
         try:
             preview = _preview_calibration(
@@ -167,27 +193,38 @@ def _solve_from_event_multistarts(
             compute_laplace_uncertainty=compute_laplace_uncertainty,
         )
 
-    best = min(previews, key=lambda result: result.negative_log_posterior)
-    return calibrate_bayesian(
-        measurements.tdoa_s,
-        measurements.event_times_s,
-        microphone_count,
-        tdoa_sigma_s=sigma,
-        microphone_pairs=measurements.microphone_pairs,
-        speed_of_sound=speed_of_sound,
-        estimate_speed_of_sound=estimate_speed_of_sound,
-        estimate_clock_offsets=estimate_clock_offsets,
-        estimate_clock_drifts=estimate_clock_drifts,
-        distance_priors=distance_priors,
-        motion_velocity_change_sigma_mps=motion_velocity_change_sigma_mps,
-        initial_microphones=best.microphone_positions,
-        initial_sources=best.source_positions,
-        initial_clock_offsets_s=best.clock_offsets_s if estimate_clock_offsets else None,
-        initial_clock_drifts=best.clock_drifts if estimate_clock_drifts else None,
-        likelihood=likelihood,
-        max_nfev=max_nfev,
-        compute_laplace_uncertainty=compute_laplace_uncertainty,
-    )
+    # Fully refine the two strongest preview basins. Near the minimum microphone
+    # count, short previews can rank two nearby low-rank hypotheses differently
+    # from the converged posterior, so do not commit to a single basin too early.
+    previews.sort(key=lambda result: result.negative_log_posterior)
+    finalists: list[BayesianCalibrationResult] = []
+    for seed in previews[:2]:
+        finalist = calibrate_bayesian(
+            measurements.tdoa_s,
+            measurements.event_times_s,
+            microphone_count,
+            tdoa_sigma_s=sigma,
+            microphone_pairs=measurements.microphone_pairs,
+            speed_of_sound=speed_of_sound,
+            estimate_speed_of_sound=estimate_speed_of_sound,
+            estimate_clock_offsets=estimate_clock_offsets,
+            estimate_clock_drifts=estimate_clock_drifts,
+            distance_priors=distance_priors,
+            motion_velocity_change_sigma_mps=motion_velocity_change_sigma_mps,
+            initial_microphones=seed.microphone_positions,
+            initial_sources=seed.source_positions,
+            initial_clock_offsets_s=seed.clock_offsets_s if estimate_clock_offsets else None,
+            initial_clock_drifts=seed.clock_drifts if estimate_clock_drifts else None,
+            likelihood=likelihood,
+            max_nfev=max_nfev,
+            compute_laplace_uncertainty=compute_laplace_uncertainty,
+        )
+        if np.isfinite(finalist.negative_log_posterior):
+            finalists.append(finalist)
+
+    if finalists:
+        return min(finalists, key=lambda result: result.negative_log_posterior)
+    return previews[0]
 
 
 def calibrate_audio(
@@ -222,10 +259,10 @@ def calibrate_audio(
     """Self-calibrate from discrete broadband/transient emissions in synchronized audio.
 
     The frontend detects acoustic events and associates their arrivals across the
-    microphones. Geometry initialization competes a rank-constrained
-    structure-from-sound solution with TDOA-derived microphone baseline lower-bound
-    hypotheses before robust joint MAP refinement. One 3-D source state is solved
-    per detected event.
+    microphones. Geometry initialization generates several rank-constrained
+    structure-from-sound hypotheses plus TDOA-baseline hypotheses, then robustly
+    refines the strongest basins with the joint Bayesian/MAP geometry model. One
+    3-D source state is solved per detected event.
     """
     values = np.asarray(audio, dtype=float)
     if values.ndim != 2:
