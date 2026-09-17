@@ -188,9 +188,7 @@ def _solve_from_event_multistarts(
             )
         except (ValueError, np.linalg.LinAlgError):
             continue
-        if np.isfinite(preview.negative_log_posterior) and np.isfinite(
-            preview.normalized_data_rms
-        ):
+        if np.isfinite(preview.negative_log_posterior) and np.isfinite(preview.normalized_data_rms):
             previews.append((family, preview))
 
     if not previews:
