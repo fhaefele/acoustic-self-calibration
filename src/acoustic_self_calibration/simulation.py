@@ -5,6 +5,40 @@ import numpy as np
 from .radiation import radiation_gain
 
 
+def broadband_pulse_train(
+    event_times_s: np.ndarray,
+    sample_rate: int,
+    duration_s: float,
+    *,
+    pulse_duration_s: float = 0.0015,
+    rng: np.random.Generator | None = None,
+) -> np.ndarray:
+    """Generate a repeated broadband pulse train for synthetic calibration tests."""
+    times = np.asarray(event_times_s, dtype=float).reshape(-1)
+    if sample_rate <= 0 or duration_s <= 0 or pulse_duration_s <= 0:
+        raise ValueError("sample_rate, duration_s, and pulse_duration_s must be positive")
+    if len(times) == 0 or np.any(np.diff(times) <= 0):
+        raise ValueError("event_times_s must be non-empty and strictly increasing")
+    if times[0] < 0 or times[-1] >= duration_s:
+        raise ValueError("event_times_s must lie inside the rendered duration")
+    if rng is None:
+        rng = np.random.default_rng()
+
+    sample_count = int(round(duration_s * sample_rate))
+    pulse_samples = max(16, int(round(pulse_duration_s * sample_rate)))
+    pulse = rng.normal(size=pulse_samples)
+    pulse = np.concatenate([np.zeros(1), np.diff(pulse)])
+    pulse *= np.hanning(pulse_samples)
+    pulse /= max(float(np.max(np.abs(pulse))), 1e-12)
+
+    signal = np.zeros(sample_count, dtype=float)
+    for time_s in times:
+        start = int(round(float(time_s) * sample_rate))
+        stop = min(sample_count, start + pulse_samples)
+        signal[start:stop] += pulse[: stop - start]
+    return signal
+
+
 def _interp_vec(times: np.ndarray, key_times: np.ndarray, values: np.ndarray) -> np.ndarray:
     out = np.empty((len(times), values.shape[1]), dtype=float)
     for dim in range(values.shape[1]):
@@ -63,7 +97,6 @@ def render_moving_source(
     out = np.zeros((n, len(mics)), dtype=float)
 
     if source_forward is None:
-        # Estimate a forward direction from trajectory velocity.
         vel = np.gradient(ss, tt, axis=0)
         forward_keys = _normalize(vel)
         bad = np.linalg.norm(vel, axis=1) < 1e-8
@@ -77,12 +110,10 @@ def render_moving_source(
         forward_keys = _normalize(forward_keys)
 
     for i, mic in enumerate(mics):
-        # Initial emission-time estimate from source position at receive time.
         s_receive = _interp_vec(receive_t, tt, ss)
         dist = np.linalg.norm(mic - s_receive, axis=1)
         emit_t = receive_t - dist / speed_of_sound
 
-        # Refine retarded time using the source location at the previous estimate.
         for _ in range(4):
             s_emit = _interp_vec(emit_t, tt, ss)
             dist = np.linalg.norm(mic - s_emit, axis=1)
@@ -135,12 +166,7 @@ def apply_channel_clock_model(
     clock_offsets_s: np.ndarray | None = None,
     clock_drifts: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Apply per-channel timing offset and linear clock drift to rendered audio.
-
-    Positive offset makes a channel appear later. Drift is seconds of timing error
-    per second, centered on the recording midpoint, matching `calibrate_bayesian`.
-    Channel 0 is usually left at zero and acts as the timing reference.
-    """
+    """Apply per-channel timing offset and linear clock drift to rendered audio."""
     x = np.asarray(audio, dtype=float)
     if x.ndim != 2:
         raise ValueError("audio must have shape (samples, channels)")
