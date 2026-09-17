@@ -1,0 +1,24 @@
+name: Actual Myotis scale diagnostics
+
+on:
+  push:
+    branches: [diagnostic/full-myotis-trace]
+
+jobs:
+  scale:
+    strategy:
+      fail-fast: false
+      matrix:
+        scale: [1.3, 1.5, 1.8, 2.1]
+    name: scale-${{ matrix.scale }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: diagnostic/full-myotis-trace
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.15"
+      - run: uv python install 3.12
+      - run: uv sync --locked --all-groups --python 3.12
+      - run: PYTHONPATH=. uv run python tools/actual_myotis_scale.py '${{ matrix.scale }}'
