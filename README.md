@@ -1,6 +1,6 @@
 # acoustic-self-calibration
 
-Bayesian/MAP **3-D acoustic self-calibration** for a **moving broadband sound source** and stationary microphone arrays, with 8–24 microphones as the primary target range.
+Bayesian/MAP **3-D acoustic self-calibration** for a **moving broadband sound source** and stationary microphone arrays, with 8–24 microphones as the primary tested range.
 
 The package works directly from synchronized multichannel audio. It does **not** require a known calibration pulse or known source emission timestamps.
 
@@ -14,20 +14,20 @@ From one multichannel recording, the solver estimates:
 - per-axis source trajectory uncertainty,
 - optional relative microphone clock offsets and drift,
 - optional speed of sound when a metric microphone-distance anchor is provided,
-- TDOA residual and posterior diagnostics.
+- TDOA and posterior diagnostics.
 
-The returned position uncertainties are local **Laplace posterior standard deviations** from the joint MAP Hessian. Source uncertainty is marginalized over microphone geometry and enabled nuisance parameters; it is not computed by pretending the microphones are exact.
+Every run writes exactly two output files:
 
-## Quick start
-
-```bash
-uv sync --all-groups
-uv run pytest
+```text
+RESULT.json
+RESULT.png
 ```
 
-### Run without cloning the repository
+The JSON is the complete machine-readable result. The PNG is one 2x2 figure containing a 3-D scene plus XY, XZ, and YZ projections.
 
-The package exposes the `acoustic-selfcal` command. Because the repository is private, the shortest one-shot invocation uses Git over SSH and your existing GitHub SSH credentials:
+## Run directly from GitHub
+
+Because this repository is private, the one-shot `uvx` form uses your GitHub SSH credentials:
 
 ```bash
 uvx \
@@ -37,53 +37,122 @@ uvx \
   --output wavcalib
 ```
 
-`--output` is an **output prefix**, not a single output filename. The command above writes:
+This produces:
 
 ```text
-wavcalib.npz
 wavcalib.json
-wavcalib_microphones.csv
-wavcalib_trajectory.csv
+wavcalib.png
 ```
 
-If the repository becomes public, the equivalent HTTPS form is:
+`--output` is an output prefix. Passing `--output wavcalib.json` is also accepted; the suffix is stripped before writing `wavcalib.json` and `wavcalib.png`.
+
+## Ground-truth / reference evaluation
+
+Provide a canonical scene JSON file to evaluate the recovered microphone geometry and source trajectory:
 
 ```bash
 uvx \
-  --from 'git+https://github.com/fhaefele/acoustic-self-calibration.git@main' \
+  --from 'git+ssh://git@github.com/fhaefele/acoustic-self-calibration.git@main' \
   acoustic-selfcal \
-  /path/to/file.wav \
+  recording.wav \
+  --ground-truth ground_truth.json \
   --output wavcalib
 ```
 
-### Run from a local checkout
+The output files remain exactly the same:
+
+```text
+wavcalib.json
+wavcalib.png
+```
+
+With a reference scene:
+
+- the JSON embeds the reference and adds an `evaluation` section,
+- microphone RMS / mean / max errors are reported,
+- source trajectory RMS / mean / max errors are reported,
+- uncertainty-vs-error diagnostics are reported when posterior stds are available,
+- the figure overlays estimated and reference microphones and source trajectory in all four panels.
+
+The evaluation fits **one rigid transform from estimated microphones to reference microphones only**. That exact transform is then applied to the source trajectory. The source is never independently aligned. Reference source positions are interpolated to the acoustic analysis-frame times.
+
+Calibration output uses the same canonical `scene` schema as GT input, so a previous result JSON can be used directly as the reference for a later run:
 
 ```bash
-uv run acoustic-selfcal recording.wav -o results/calibration
+uv run acoustic-selfcal second.wav \
+  --ground-truth first_calibration.json \
+  --output second_vs_first
 ```
 
-The command writes:
+A reused calibration result keeps `scene_role: "estimate"`, making it explicit that it is a reference estimate rather than measured physical truth.
 
-```text
-results/calibration.npz
-results/calibration.json
-results/calibration_microphones.csv
-results/calibration_trajectory.csv
+See [`docs/json_format.md`](docs/json_format.md) for the complete unified JSON schema.
+
+## Ground-truth JSON helpers and validation
+
+You do not need to hand-author GT JSON. Use the convenience function:
+
+```python
+from acoustic_self_calibration import write_ground_truth_json
+
+write_ground_truth_json(
+    "ground_truth.json",
+    microphone_positions_m=microphones,
+    source_times_s=times,
+    source_positions_m=trajectory,
+    metadata={"name": "trial_01"},
+)
 ```
 
-`calibration_microphones.csv` contains:
+Or build the validated JSON object without writing a file:
 
-```text
-microphone,x_m,y_m,z_m,std_x_m,std_y_m,std_z_m
+```python
+from acoustic_self_calibration import make_ground_truth_dict
+
+payload = make_ground_truth_dict(
+    microphone_positions_m=microphones,
+    source_times_s=times,
+    source_positions_m=trajectory,
+)
 ```
 
-`calibration_trajectory.csv` contains:
+Validate a GT file or a previous calibration result before using it:
 
-```text
-time_s,x_m,y_m,z_m,std_x_m,std_y_m,std_z_m
+```python
+from acoustic_self_calibration import validate_ground_truth_json
+
+reference = validate_ground_truth_json("reference.json")
 ```
 
-The compressed NPZ additionally contains the raw pairwise TDOAs, their estimated timing uncertainties, GCC confidence values, microphone-pair graph, clock terms, speed of sound, diagnostics, and all position/uncertainty arrays.
+The canonical minimal GT schema is:
+
+```json
+{
+  "schema_version": 1,
+  "scene_role": "ground_truth",
+  "scene": {
+    "microphones": {
+      "positions_m": [[0.0, 0.0, 1.2], [1.0, 0.0, 1.2], [0.0, 1.0, 1.2], [0.0, 0.0, 2.0]]
+    },
+    "source": {
+      "times_s": [0.0, 0.1, 0.2],
+      "positions_m": [[2.0, 0.0, 1.0], [1.95, 0.2, 1.02], [1.85, 0.4, 1.05]]
+    }
+  },
+  "metadata": {
+    "name": "trial_01"
+  }
+}
+```
+
+The previous pre-`scene` JSON schema is intentionally unsupported.
+
+## Local checkout
+
+```bash
+uv sync --all-groups
+uv run acoustic-selfcal recording.wav --output results/calibration
+```
 
 A typical real-data command is:
 
@@ -97,7 +166,7 @@ uv run acoustic-selfcal recording.wav \
   --likelihood cauchy
 ```
 
-For recordings assembled from channels with unknown relative timing, experimental clock terms can be enabled:
+For channels with unknown relative timing:
 
 ```bash
 uv run acoustic-selfcal recording.wav \
@@ -105,7 +174,9 @@ uv run acoustic-selfcal recording.wav \
   --estimate-clock-drifts
 ```
 
-Sound speed cannot be estimated together with unconstrained scene scale from TDOAs alone. To estimate it, provide at least one measured microphone baseline:
+Clock drift remains experimental.
+
+Sound speed and scene scale are ambiguous from TDOAs alone. To estimate sound speed, provide at least one known microphone baseline:
 
 ```bash
 uv run acoustic-selfcal recording.wav \
@@ -113,12 +184,16 @@ uv run acoustic-selfcal recording.wav \
   --distance-prior 0,1,1.234,0.002
 ```
 
-That example means microphones 0 and 1 are `1.234 m` apart with a `0.002 m` standard deviation.
+This means microphones 0 and 1 are `1.234 m` apart with a `0.002 m` standard deviation.
 
-### Python API for a WAV file
+## Python API
 
 ```python
-from acoustic_self_calibration import calibrate_wav, export_calibration
+from acoustic_self_calibration import (
+    calibrate_wav,
+    load_ground_truth_json,
+    write_calibration_outputs,
+)
 
 result = calibrate_wav(
     "recording.wav",
@@ -129,21 +204,19 @@ result = calibrate_wav(
     likelihood="cauchy",
 )
 
-cal = result.calibration
+reference = load_ground_truth_json("reference.json")
+paths = write_calibration_outputs(
+    result,
+    "results/calibration",
+    input_wav_path="recording.wav",
+    ground_truth=reference,
+)
 
-microphone_positions = cal.microphone_positions
-microphone_std = cal.microphone_position_std_m
-
-source_times = result.frame_times_s
-source_positions = cal.source_positions
-source_std = cal.source_position_std_m
-
-paths = export_calibration(result, "results/calibration")
+print(paths.json)
+print(paths.figure)
 ```
 
-The WAV reader accepts common integer PCM and floating-point WAV data. Integer PCM is normalized to floating point before calibration; true 24-bit PCM is supported through SciPy's left-justified `int32` representation.
-
-### Python API for an in-memory array
+For an in-memory array:
 
 ```python
 from acoustic_self_calibration import calibrate_audio
@@ -151,94 +224,72 @@ from acoustic_self_calibration import calibrate_audio
 result = calibrate_audio(
     audio,  # shape: (samples, microphones)
     sample_rate=48_000,
-    frame_size=1024,
-    hop_size=4096,
-    pair_mode="redundant",
-    reference_count=2,
-    likelihood="cauchy",
 )
 ```
 
-Lower-level pairwise-TDOA and MAP APIs are public for research use.
+## Visualization
+
+`RESULT.png` is one figure with:
+
+1. **3-D scene**
+2. **XY projection**
+3. **XZ projection**
+4. **YZ projection**
+
+Every panel contains microphone positions and source trajectory. With a reference, every panel contains both the aligned estimate and reference scene. Microphone correspondence lines make geometry error visible directly. Sparse 1-sigma uncertainty ellipses are shown in the 2-D panels when uncertainty is available.
 
 ## Pipeline
 
 ```text
-arbitrary moving broadband source
-            |
-            v
-synchronized multichannel waveform / WAV
-            |
-            v
+moving broadband source
+        |
+        v
+multichannel waveform / WAV
+        |
+        v
 redundant pairwise GCC-PHAT TDOAs
-            |
-            v
-confidence -> timing uncertainty
-            |
-            v
+        |
+        v
+confidence -> heteroscedastic timing uncertainty
+        |
+        v
 low-rank Euclidean scene initializer
-            |
-            v
+        |
+        v
 Bayesian factor graph / MAP optimization
   - stationary microphone positions
   - moving source trajectory
-  - constant-velocity motion prior
+  - motion prior
   - robust Cauchy-IRLS or Gaussian TDOA likelihood
-  - optional microphone clock offsets
-  - optional clock drift (experimental)
+  - optional clock offsets / drift
   - optional sound-speed estimation with metric anchor
-            |
-            v
+        |
+        v
 joint Laplace uncertainty
-  - microphone position std
-  - source trajectory std
-  - enabled global nuisance-parameter std
+        |
+        +--> result JSON
+        +--> 3-D + XY/XZ/YZ PNG
+        +--> optional reference evaluation
 ```
-
-## Measurement model
-
-For microphone pair `(a, b)` and source state `t`:
-
-```text
-tau_ab,t = (||s_t - m_b|| - ||s_t - m_a||) / c
-           + (offset_b - offset_a)
-           + (drift_b - drift_a) * (t - mean(t))
-           + noise
-```
-
-The absolute world coordinate frame is not observable from TDOAs. The optimizer fixes a canonical six-degree-of-freedom rigid-body gauge. A global mirror ambiguity is resolved by a fixed handedness convention. Therefore all positions and their per-axis standard deviations are expressed in that recovered canonical coordinate frame unless you subsequently register the array to external anchors.
 
 ## Recording requirements
 
 For useful real-data calibration:
 
 - use at least four microphones; 8–24 is the main tested range,
-- all channels should preferably share one sample clock,
-- the source should contain enough broadband energy for delay estimation,
+- channels should preferably share one sample clock,
+- the source should contain broadband energy suitable for delay estimation,
 - the source must move through a genuinely 3-D, non-degenerate trajectory,
-- avoid trajectories that are almost entirely linear or planar when full 3-D geometry is required,
-- direct-path-dominant, high-SNR data will perform substantially better than highly reverberant recordings,
-- choose `frame_size` and `hop_size` so each analysis frame sees an approximately stationary propagation geometry while still obtaining enough independent source poses.
+- direct-path-dominant, high-SNR data will work substantially better than highly reverberant data,
+- choose frame/hop sizes so geometry is approximately stationary inside a frame while enough independent source poses remain.
 
-## Why Bayesian MAP instead of generic MCMC?
+The absolute world coordinate frame is not observable from TDOAs. Normal estimates therefore live in the solver's canonical gauge. Reference evaluation removes that arbitrary rigid frame by aligning estimated microphones to reference microphones before reporting geometric error.
 
-With 24 microphones and hundreds of source states, the problem has thousands of continuous variables. A sparse MAP factor graph gives the useful Bayesian structure—heteroscedastic measurement uncertainty, priors, nuisance timing parameters, robust likelihoods, and local posterior covariance—without the cost of generic full-state MCMC.
+## Uncertainty interpretation
 
-The reported Laplace uncertainties quantify local curvature of the fitted probabilistic model. They do **not** account for unmodeled room reflections, source/microphone response errors, an incorrectly calibrated GCC confidence-to-sigma mapping, or multimodal posterior structure.
+The reported position uncertainties are local **Laplace posterior standard deviations** around the MAP solution. Source uncertainty is marginalized over microphone geometry and enabled nuisance parameters.
 
-## Synthetic moving-source renderer
-
-The simulator supports:
-
-- arbitrary microphone positions and counts,
-- arbitrary 3-D source trajectories,
-- retarded emission time for continuous source motion,
-- inverse-distance propagation,
-- omni, cardioid, hypercardioid, and dipole source radiation patterns,
-- additive waveform noise,
-- optional per-channel clock offset/drift simulation.
-
-Unlike a discrete pulse-event simulator, propagation delay is solved against the source position at the **emission time**, so source motion affects the rendered waveform continuously.
+They do not capture all real-world error sources: unmodeled room reflections, channel-response mismatch, incorrect direct-path peaks, imperfect GCC confidence calibration, or multimodal posterior structure.
 
 ## Validation
 
@@ -246,25 +297,30 @@ The automated tests cover:
 
 - 8, 16, and 24 microphones,
 - rendered moving cardioid broadband audio,
-- a PCM16 WAV -> calibration -> joint uncertainty end-to-end path,
+- PCM16 WAV -> calibration -> joint uncertainty,
 - PCM16, true PCM24, PCM32, and float WAV decoding,
 - pairwise GCC-PHAT extraction,
-- automatic low-rank initialization,
-- joint microphone/source MAP recovery,
-- marginalized microphone and source-position Laplace uncertainty,
-- heteroscedastic timing uncertainty,
+- low-rank initialization,
+- microphone/source MAP recovery,
+- microphone/source Laplace uncertainty,
 - relative clock-offset estimation,
 - sound-speed estimation with a known baseline,
-- calibration exports to NPZ, JSON, and CSV,
-- directivity and moving-source propagation.
+- JSON-only output,
+- canonical scene JSON helpers and validation,
+- direct reuse of result JSON as reference input,
+- explicit rejection of the old pre-`scene` schema,
+- microphone-only rigid alignment for reference evaluation,
+- source reference interpolation to estimate times,
+- 3-D + XY/XZ/YZ visualization generation.
 
-Run the reproducible synthetic benchmark:
+Run:
 
 ```bash
+uv run pytest
 uv run python examples/validate_synthetic_audio.py
 ```
 
-See [`VALIDATION.md`](VALIDATION.md) for the current synthetic free-field benchmark and its limitations.
+See [`VALIDATION.md`](VALIDATION.md) for the synthetic free-field benchmark and limitations.
 
 ## Development
 
@@ -282,20 +338,23 @@ uv build
 ```text
 src/acoustic_self_calibration/
     bayesian.py        sparse MAP factor graph + joint Laplace uncertainty
-    initialization.py  low-rank geometry bootstrap + coordinate gauge packing
+    initialization.py  low-rank geometry bootstrap + gauge packing
     pipeline.py        in-memory audio -> TDOA -> MAP API
-    wav.py             multichannel WAV loading + calibrate_wav API
-    export.py          NPZ / JSON / microphone CSV / trajectory CSV export
-    cli.py             acoustic-selfcal command-line interface
+    wav.py             WAV loading + calibrate_wav API
+    ground_truth.py    scene JSON validation/read/write helpers
+    evaluation.py      rigid alignment + reference metrics
+    visualization.py   one 3-D/XY/XZ/YZ figure
+    export.py          JSON result + PNG writer
+    cli.py             acoustic-selfcal CLI
     tdoa.py            GCC-PHAT and redundant pair graphs
-    simulation.py      continuous moving-source renderer + clock simulation
+    simulation.py      continuous moving-source renderer
     radiation.py       source directivity patterns
-    geometry.py        canonical gauge, rigid alignment, error metrics
+    geometry.py        gauge, rigid alignment, error metrics
 ```
 
 ## Scope
 
-This is a research-grade free-field baseline, not a claim that reverberant-room calibration is solved. The main real-world extensions are explicit multipath/direct-path selection, measured microphone/channel responses, empirical TDOA uncertainty calibration, stronger outlier rejection, and more mature asynchronous-clock models.
+This is a research-grade free-field baseline, not a claim that reverberant-room calibration is solved. Important real-world extensions remain explicit multipath/direct-path selection, measured microphone/channel responses, empirical TDOA uncertainty calibration, stronger outlier rejection, and mature asynchronous-clock models.
 
 ## License
 

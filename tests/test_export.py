@@ -1,11 +1,11 @@
-import csv
 import json
 from pathlib import Path
 
 import numpy as np
 
 from acoustic_self_calibration.bayesian import BayesianCalibrationResult
-from acoustic_self_calibration.export import export_calibration
+from acoustic_self_calibration.export import write_calibration_outputs
+from acoustic_self_calibration.ground_truth import GroundTruth, validate_ground_truth_json
 from acoustic_self_calibration.pipeline import AudioCalibrationResult
 
 
@@ -40,36 +40,75 @@ def _result() -> AudioCalibrationResult:
     )
 
 
-def test_export_calibration_writes_all_formats(tmp_path: Path) -> None:
-    paths = export_calibration(_result(), tmp_path / "calibration")
+def test_write_calibration_outputs_writes_only_json_and_png(tmp_path: Path) -> None:
+    paths = write_calibration_outputs(
+        _result(),
+        tmp_path / "calibration",
+        input_wav_path="recording.wav",
+        settings={"frame_size": 1024},
+    )
 
-    assert paths.npz.exists()
     assert paths.json.exists()
-    assert paths.microphones_csv.exists()
-    assert paths.trajectory_csv.exists()
+    assert paths.figure.exists()
+    assert paths.figure.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+    assert sorted(path.name for path in tmp_path.iterdir()) == [
+        "calibration.json",
+        "calibration.png",
+    ]
 
-    with np.load(paths.npz) as archive:
-        assert archive["microphone_positions_m"].shape == (4, 3)
-        assert archive["source_positions_m"].shape == (2, 3)
-        assert archive["microphone_position_std_m"].shape == (4, 3)
-        assert archive["source_position_std_m"].shape == (2, 3)
-
-    metadata = json.loads(paths.json.read_text(encoding="utf-8"))
-    assert metadata["success"] is True
-    assert len(metadata["source_position_std_m"]) == 2
-
-    with paths.microphones_csv.open(newline="", encoding="utf-8") as handle:
-        mic_rows = list(csv.DictReader(handle))
-    assert len(mic_rows) == 4
-    assert float(mic_rows[1]["std_x_m"]) == 0.01
-
-    with paths.trajectory_csv.open(newline="", encoding="utf-8") as handle:
-        trajectory_rows = list(csv.DictReader(handle))
-    assert len(trajectory_rows) == 2
-    assert float(trajectory_rows[0]["std_z_m"]) == 0.02
+    document = json.loads(paths.json.read_text(encoding="utf-8"))
+    assert document["schema_version"] == 1
+    assert document["scene_role"] == "estimate"
+    assert document["input"]["wav_path"] == "recording.wav"
+    assert document["settings"]["frame_size"] == 1024
+    assert len(document["scene"]["microphones"]["positions_m"]) == 4
+    assert len(document["scene"]["source"]["std_m"]) == 2
+    assert "evaluation" not in document
 
 
-def test_export_calibration_represents_missing_uncertainty(tmp_path: Path) -> None:
+def test_result_json_is_directly_valid_as_reference_input(tmp_path: Path) -> None:
+    result = _result()
+    first_paths = write_calibration_outputs(result, tmp_path / "first")
+
+    reference = validate_ground_truth_json(first_paths.json)
+    assert reference.scene_role == "estimate"
+    assert np.allclose(reference.microphone_positions_m, result.calibration.microphone_positions)
+    assert np.allclose(reference.source_positions_m, result.calibration.source_positions)
+
+    second_paths = write_calibration_outputs(
+        result,
+        tmp_path / "second",
+        ground_truth=first_paths.json,
+    )
+    document = json.loads(second_paths.json.read_text(encoding="utf-8"))
+    assert document["reference"]["scene_role"] == "estimate"
+    assert document["evaluation"]["alignment"]["fitted_from"] == "microphones_only"
+    assert document["evaluation"]["microphones"]["rms_error_m"] < 1e-12
+    assert document["evaluation"]["source"]["rms_error_m"] < 1e-12
+
+
+def test_write_calibration_outputs_adds_ground_truth_evaluation(tmp_path: Path) -> None:
+    result = _result()
+    ground_truth = GroundTruth(
+        microphone_positions_m=result.calibration.microphone_positions.copy(),
+        source_times_s=result.frame_times_s.copy(),
+        source_positions_m=result.calibration.source_positions.copy(),
+        metadata={"name": "exact"},
+    )
+    paths = write_calibration_outputs(
+        result,
+        tmp_path / "with_gt.json",
+        ground_truth=ground_truth,
+    )
+    document = json.loads(paths.json.read_text(encoding="utf-8"))
+    assert document["reference"]["metadata"]["name"] == "exact"
+    assert document["reference"]["scene_role"] == "ground_truth"
+    assert document["evaluation"]["alignment"]["fitted_from"] == "microphones_only"
+    assert document["evaluation"]["microphones"]["rms_error_m"] < 1e-12
+    assert document["evaluation"]["source"]["rms_error_m"] < 1e-12
+
+
+def test_write_calibration_outputs_uses_json_null_for_missing_uncertainty(tmp_path: Path) -> None:
     result = _result()
     calibration = result.calibration
     without_uncertainty = BayesianCalibrationResult(
@@ -98,9 +137,7 @@ def test_export_calibration_represents_missing_uncertainty(tmp_path: Path) -> No
         confidence=result.confidence,
         microphone_pairs=result.microphone_pairs,
     )
-    paths = export_calibration(result, tmp_path / "without_uncertainty.npz")
-    metadata = json.loads(paths.json.read_text(encoding="utf-8"))
-    assert metadata["microphone_position_std_m"] is None
-    assert metadata["source_position_std_m"] is None
-    with np.load(paths.npz) as archive:
-        assert archive["source_position_std_m"].shape == (0, 3)
+    paths = write_calibration_outputs(result, tmp_path / "without_uncertainty")
+    document = json.loads(paths.json.read_text(encoding="utf-8"))
+    assert document["scene"]["microphones"]["std_m"] is None
+    assert document["scene"]["source"]["std_m"] is None
