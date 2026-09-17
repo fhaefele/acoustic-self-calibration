@@ -51,7 +51,7 @@ def calibrate_audio(
     tdoa_candidate_count: int = 8,
     max_tdoa_rate: float = 0.05,
     tdoa_track_weight: float = 0.4,
-    pair_mode: str = "reference",
+    pair_mode: str = "redundant",
     reference_count: int = 2,
     microphone_pairs: Sequence[tuple[int, int]] | None = None,
     speed_of_sound: float = 343.0,
