@@ -11,60 +11,74 @@ from .bayesian import (
     calibrate_bayesian,
     tdoa_sigma_from_confidence,
 )
-from .tdoa import estimate_pairwise_tdoa_matrix, make_microphone_pairs
+from .events import detect_transient_events, estimate_event_tdoas
+from .tdoa import make_microphone_pairs
 
 
 @dataclass(frozen=True)
 class AudioCalibrationResult:
-    """End-to-end result plus the TDOA measurements used by the MAP solver."""
+    """End-to-end event-driven calibration result and its acoustic measurements."""
 
     calibration: BayesianCalibrationResult
-    frame_times_s: np.ndarray
+    event_times_s: np.ndarray
+    event_samples: np.ndarray
+    event_channel: int
+    detected_event_count: int
     tdoa_s: np.ndarray
     tdoa_sigma_s: np.ndarray
     confidence: np.ndarray
+    arrival_delays_s: np.ndarray
+    arrival_confidence: np.ndarray
     microphone_pairs: tuple[tuple[int, int], ...]
+
+    @property
+    def frame_times_s(self) -> np.ndarray:
+        """Compatibility alias; source states are now transient events, not frames."""
+        return self.event_times_s
 
 
 def calibrate_audio(
     audio: np.ndarray,
     sample_rate: int,
     *,
-    frame_size: int = 1024,
-    hop_size: int = 4096,
-    max_tau_s: float | None = 0.03,
-    gcc_interp: int = 16,
-    pair_mode: str = "redundant",
+    event_channel: int | None = None,
+    event_smooth_s: float = 0.0003,
+    event_min_gap_s: float = 0.003,
+    event_relative_prominence: float = 0.003,
+    max_tau_s: float = 0.01,
+    tdoa_envelope_smooth_s: float = 0.00008,
+    tdoa_template_s: float = 0.0018,
+    tdoa_candidate_count: int = 8,
+    max_tdoa_rate: float = 0.05,
+    tdoa_track_weight: float = 0.4,
+    pair_mode: str = "reference",
     reference_count: int = 2,
     microphone_pairs: Sequence[tuple[int, int]] | None = None,
     speed_of_sound: float = 343.0,
-    motion_velocity_change_sigma_mps: float | None = 3.0,
+    motion_velocity_change_sigma_mps: float | None = 5.0,
     likelihood: str = "cauchy",
     estimate_clock_offsets: bool = False,
     estimate_clock_drifts: bool = False,
     estimate_speed_of_sound: bool = False,
     distance_priors: Sequence[DistancePrior] = (),
-    best_sigma_samples: float = 0.35,
-    worst_sigma_samples: float = 4.0,
+    best_sigma_samples: float = 1.0,
+    worst_sigma_samples: float = 12.0,
     max_nfev: int = 4000,
     compute_laplace_uncertainty: bool = True,
 ) -> AudioCalibrationResult:
-    """Self-calibrate directly from synchronized multichannel broadband audio.
+    """Self-calibrate from discrete broadband/transient emissions in synchronized audio.
 
-    No source waveform or emission timestamps are required. The source must provide
-    enough broadband content for GCC-PHAT and must move through a non-degenerate 3-D
-    trajectory during the recording.
-
-    The frontend estimates redundant pairwise TDOAs frame by frame. Relative GCC
-    peak confidence is converted to heteroscedastic timing uncertainty, and those
-    measurements feed the Bayesian/MAP factor graph.
+    The frontend first detects acoustic events, then retains multiple inter-channel
+    delay hypotheses for each event and tracks a temporally smooth TDOA sequence.
+    One 3-D source state is solved per detected event. Silence between events is not
+    sent to the geometry optimizer.
     """
-    x = np.asarray(audio, dtype=float)
-    if x.ndim != 2:
+    values = np.asarray(audio, dtype=float)
+    if values.ndim != 2:
         raise ValueError("audio must have shape (samples, microphones)")
     if sample_rate <= 0:
         raise ValueError("sample_rate must be positive")
-    microphone_count = x.shape[1]
+    microphone_count = values.shape[1]
     if microphone_count < 4:
         raise ValueError("At least four microphones are required for 3-D calibration")
 
@@ -79,28 +93,40 @@ def calibrate_audio(
     else:
         pairs = tuple((int(a), int(b)) for a, b in microphone_pairs)
 
-    frame_times, tdoa, confidence, pairs = estimate_pairwise_tdoa_matrix(
-        x,
+    detection = detect_transient_events(
+        values,
         sample_rate,
+        event_channel=event_channel,
+        smooth_s=event_smooth_s,
+        min_gap_s=event_min_gap_s,
+        relative_prominence=event_relative_prominence,
+    )
+    measurements = estimate_event_tdoas(
+        values,
+        sample_rate,
+        detection.event_samples,
+        detection.event_channel,
         microphone_pairs=pairs,
-        frame_size=frame_size,
-        hop_size=hop_size,
-        max_tau=max_tau_s,
-        interp=gcc_interp,
+        max_tau_s=max_tau_s,
+        envelope_smooth_s=tdoa_envelope_smooth_s,
+        template_s=tdoa_template_s,
+        candidate_count=tdoa_candidate_count,
+        max_tdoa_rate=max_tdoa_rate,
+        transition_weight=tdoa_track_weight,
     )
     sigma = tdoa_sigma_from_confidence(
-        confidence,
+        measurements.confidence,
         sample_rate,
         best_sigma_samples=best_sigma_samples,
         worst_sigma_samples=worst_sigma_samples,
     )
 
     calibration = calibrate_bayesian(
-        tdoa,
-        frame_times,
+        measurements.tdoa_s,
+        measurements.event_times_s,
         microphone_count,
         tdoa_sigma_s=sigma,
-        microphone_pairs=pairs,
+        microphone_pairs=measurements.microphone_pairs,
         speed_of_sound=speed_of_sound,
         estimate_speed_of_sound=estimate_speed_of_sound,
         estimate_clock_offsets=estimate_clock_offsets,
@@ -114,9 +140,14 @@ def calibrate_audio(
 
     return AudioCalibrationResult(
         calibration=calibration,
-        frame_times_s=frame_times,
-        tdoa_s=tdoa,
+        event_times_s=measurements.event_times_s,
+        event_samples=measurements.event_samples,
+        event_channel=measurements.event_channel,
+        detected_event_count=len(detection.event_samples),
+        tdoa_s=measurements.tdoa_s,
         tdoa_sigma_s=sigma,
-        confidence=confidence,
-        microphone_pairs=pairs,
+        confidence=measurements.confidence,
+        arrival_delays_s=measurements.arrival_delays_s,
+        arrival_confidence=measurements.arrival_confidence,
+        microphone_pairs=measurements.microphone_pairs,
     )
