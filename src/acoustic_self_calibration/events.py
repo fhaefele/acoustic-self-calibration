@@ -166,6 +166,20 @@ def _normalized_correlation_curve(
     return np.asarray(correlation / denominator, dtype=float)
 
 
+def _parabolic_peak_offset(score: np.ndarray, index: int) -> float:
+    """Return a quadratic sub-sample correction for one discrete peak."""
+    if index <= 0 or index >= len(score) - 1:
+        return 0.0
+    left = float(score[index - 1])
+    center = float(score[index])
+    right = float(score[index + 1])
+    denominator = left - 2.0 * center + right
+    if abs(denominator) <= 1e-12:
+        return 0.0
+    offset = 0.5 * (left - right) / denominator
+    return float(np.clip(offset, -0.5, 0.5))
+
+
 def _lag_candidates(
     correlation: np.ndarray,
     *,
@@ -185,7 +199,14 @@ def _lag_candidates(
         peaks = np.concatenate([peaks, np.array([global_peak], dtype=int)])
     order = np.argsort(score[peaks])[::-1][:candidate_count]
     selected = peaks[order]
-    return selected.astype(int) - max_lag_samples, np.clip(score[selected], 1e-4, 1.0)
+    refined = np.array(
+        [
+            float(index - max_lag_samples) + _parabolic_peak_offset(score, int(index))
+            for index in selected
+        ],
+        dtype=float,
+    )
+    return refined, np.clip(score[selected], 1e-4, 1.0)
 
 
 def _select_smooth_lag_track(
@@ -223,7 +244,7 @@ def _select_smooth_lag_track(
 
     lags = np.array(
         [candidates[index][0][path[index]] for index in range(len(candidates))],
-        dtype=int,
+        dtype=float,
     )
     confidence = np.array(
         [candidates[index][1][path[index]] for index in range(len(candidates))],
@@ -249,10 +270,11 @@ def estimate_event_tdoas(
     """Estimate one cycle-consistent TDOA set for every detected transient event.
 
     For each non-reference channel, multiple normalized envelope-correlation peaks
-    are retained. A dynamic-programming track then chooses a temporally smooth
-    delay sequence, which suppresses repeated-waveform and neighbouring-call
-    ambiguities common in pulsed recordings. Pairwise TDOAs are derived from the
-    selected per-channel arrival delays, so TDOA cycle consistency is exact.
+    are retained and refined to sub-sample lag estimates with local quadratic peak
+    interpolation. A dynamic-programming track then chooses a temporally smooth
+    delay sequence, suppressing repeated-waveform and neighbouring-call
+    ambiguities. Pairwise TDOAs are derived from the selected per-channel arrival
+    delays, so TDOA cycle consistency is exact.
     """
     values = _validate_audio(audio, sample_rate)
     events = np.asarray(event_samples, dtype=int).reshape(-1)
@@ -289,7 +311,7 @@ def estimate_event_tdoas(
         max(1, int(round(envelope_smooth_s * sample_rate))),
     )
     microphone_count = values.shape[1]
-    arrival_lags = np.zeros((len(events), microphone_count), dtype=int)
+    arrival_lags = np.zeros((len(events), microphone_count), dtype=float)
     arrival_confidence = np.ones((len(events), microphone_count), dtype=float)
     minimum_peak_spacing = max(1, int(round(0.0002 * sample_rate)))
 
@@ -325,7 +347,7 @@ def estimate_event_tdoas(
         arrival_lags[:, channel] = selected_lags
         arrival_confidence[:, channel] = selected_confidence
 
-    arrival_delays_s = arrival_lags.astype(float) / float(sample_rate)
+    arrival_delays_s = arrival_lags / float(sample_rate)
     tdoa = np.empty((len(events), len(pairs)), dtype=float)
     confidence = np.empty_like(tdoa)
     for column, (a, b) in enumerate(pairs):
