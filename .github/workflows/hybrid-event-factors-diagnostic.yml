@@ -71,14 +71,10 @@ jobs:
           replacement = indent(body, "    ").rstrip("\n")
           text = text[:start] + replacement + text[end:]
 
-          old = '''    # Pairwise event TDOAs share per-channel arrival estimates, so cycle edges are
-          # correlated observations. Retain the redundant graph for coarse MDS candidate
-          # construction, but use the minimum-uncertainty independent tree for both the
-          # continuation preview and the final MAP objective.
-          solver_measurements = preview_measurements
-          solver_sigma = preview_sigma
-          '''
-          new = '''    # Small arrays are most sensitive to cycle-overcounting in the diagonal-noise
+          factor_start = text.index("    # Pairwise event TDOAs share per-channel arrival estimates")
+          factor_end = text.index("\n\n    preview_budget = min(max_nfev, 250)", factor_start)
+          factor_body = dedent("""\
+          # Small arrays are most sensitive to cycle-overcounting in the diagonal-noise
           # MAP model, so keep an independent reference star through final refinement.
           # Larger arrays have enough geometric redundancy that the normalized redundant
           # graph converges more reliably under the requested robust likelihood.
@@ -91,10 +87,9 @@ jobs:
               redundancy_scale = np.sqrt(redundant_edge_count / independent_edge_count)
               solver_measurements = measurements
               solver_sigma = np.asarray(sigma, dtype=float) * redundancy_scale
-          '''
-          if old not in text:
-              raise SystemExit("expected final-MAP factor block not found")
-          text = text.replace(old, new, 1)
+          """)
+          factor_replacement = indent(factor_body, "    ").rstrip("\n")
+          text = text[:factor_start] + factor_replacement + text[factor_end:]
           path.write_text(text)
           compile(path.read_text(), str(path), "exec")
           PY
