@@ -53,10 +53,10 @@ def _spanning_tree_measurements(
 
     Event pairwise TDOAs are derived from the same per-channel arrival delays, so
     cycles in the requested graph are exactly linearly dependent and their errors
-    are correlated. Feeding every edge to a diagonal-noise MAP model overcounts
-    those arrivals and can pull the geometry into a lower-residual but incorrect
-    basin. A deterministic spanning tree preserves all microphones without
-    double-counting cycle constraints. Default pair order yields the mic-0 star.
+    are correlated. Feeding every edge to an uncorrected diagonal-noise MAP model
+    overcounts those arrivals. A deterministic spanning tree gives an independent
+    preview objective while the final MAP can still use normalized redundant edges.
+    Default pair order yields the mic-0 star.
     """
     values = np.asarray(sigma, dtype=float)
     if values.shape != measurements.tdoa_s.shape:
@@ -219,11 +219,16 @@ def _solve_from_event_multistarts(
     max_nfev: int,
     compute_laplace_uncertainty: bool,
 ) -> BayesianCalibrationResult:
-    solver_measurements, solver_sigma = _spanning_tree_measurements(
+    preview_measurements, preview_sigma = _spanning_tree_measurements(
         measurements,
         sigma,
         microphone_count,
     )
+    independent_edge_count = microphone_count - 1
+    redundant_edge_count = len(measurements.microphone_pairs)
+    redundancy_scale = np.sqrt(redundant_edge_count / independent_edge_count)
+    solver_measurements = measurements
+    solver_sigma = np.asarray(sigma, dtype=float) * redundancy_scale
     candidates: list[tuple[str, np.ndarray, np.ndarray]] = []
 
     # Retain the strongest full-data rank-three solution as its own family. This
@@ -286,9 +291,9 @@ def _solve_from_event_multistarts(
     for family, microphones0, sources0 in candidates:
         try:
             preview = _preview_calibration(
-                solver_measurements,
+                preview_measurements,
                 microphone_count,
-                sigma=solver_sigma,
+                sigma=preview_sigma,
                 speed_of_sound=speed_of_sound,
                 motion_velocity_change_sigma_mps=motion_velocity_change_sigma_mps,
                 likelihood=preview_likelihood,
