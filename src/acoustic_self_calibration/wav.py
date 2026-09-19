@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
 from scipy.io import wavfile
 
-from .bayesian import DistancePrior
-from .pipeline import AudioCalibrationResult, calibrate_audio
+from .pipeline import AudioCalibrationResult, AudioModel, RefinementMode, calibrate_audio
+from .stratified.constraints import PlanarAngleConstraint
 
 
 def _audio_to_float64(audio: np.ndarray) -> np.ndarray:
@@ -32,63 +31,77 @@ def _audio_to_float64(audio: np.ndarray) -> np.ndarray:
 
 
 def read_multichannel_wav(path: str | Path) -> tuple[int, np.ndarray]:
-    """Read a multichannel WAV file and normalize integer PCM to float64.
-
-    SciPy represents 24-bit PCM as left-justified int32. Dividing by the int32
-    full-scale value therefore also normalizes conventional 24-bit PCM correctly.
-    """
+    """Read a multichannel WAV file and normalize integer PCM to float64."""
     sample_rate, audio = wavfile.read(Path(path))
     samples = _audio_to_float64(np.asarray(audio))
     if samples.ndim != 2:
         raise ValueError("WAV must be multichannel with shape (samples, microphones)")
     if samples.shape[1] < 4:
-        raise ValueError("At least four WAV channels are required for 3-D calibration")
+        raise ValueError("At least four WAV channels are required")
     return int(sample_rate), samples
 
 
 def calibrate_wav(
     path: str | Path,
     *,
-    frame_size: int = 1024,
-    hop_size: int = 4096,
-    max_tau_s: float | None = 0.03,
-    gcc_interp: int = 16,
-    pair_mode: str = "redundant",
-    reference_count: int = 2,
-    microphone_pairs: Sequence[tuple[int, int]] | None = None,
+    event_channel: int | None = None,
+    event_smooth_s: float = 0.0003,
+    event_min_gap_s: float = 0.003,
+    event_relative_prominence: float = 0.003,
+    max_tau_s: float = 0.01,
+    tdoa_envelope_smooth_s: float = 0.00008,
+    tdoa_template_s: float = 0.0018,
+    tdoa_candidate_count: int = 8,
+    max_tdoa_rate: float = 0.05,
+    tdoa_track_weight: float = 0.4,
+    use_temporal_tracking: bool = True,
     speed_of_sound: float = 343.0,
-    motion_velocity_change_sigma_mps: float | None = 3.0,
-    likelihood: str = "cauchy",
-    estimate_clock_offsets: bool = False,
-    estimate_clock_drifts: bool = False,
-    estimate_speed_of_sound: bool = False,
-    distance_priors: Sequence[DistancePrior] = (),
     best_sigma_samples: float = 0.35,
     worst_sigma_samples: float = 4.0,
-    max_nfev: int = 4000,
-    compute_laplace_uncertainty: bool = True,
+    receiver_subset_budget: int = 3,
+    event_subset_budget: int = 2,
+    root_start_count: int = 32,
+    metric_start_count: int = 20,
+    extra_microphone_inlier_rms_m: float = 0.05,
+    planar_membership_tolerance: float = 5e-3,
+    planar_metric_acceptance_rms_m: float = 5e-3,
+    planar_extra_microphone_rms_m: float = 0.02,
+    angle_constraint: PlanarAngleConstraint | None = None,
+    model: AudioModel = "general_3d",
+    refinement: RefinementMode = "none",
+    refinement_max_nfev: int = 200,
+    refinement_improvement_tolerance: float = 1e-10,
 ) -> AudioCalibrationResult:
-    """Calibrate microphone geometry and moving-source trajectory from a WAV file."""
+    """Calibrate microphone geometry and event sources from a multichannel WAV file."""
     sample_rate, audio = read_multichannel_wav(path)
     return calibrate_audio(
         audio,
-        sample_rate=sample_rate,
-        frame_size=frame_size,
-        hop_size=hop_size,
+        sample_rate,
+        event_channel=event_channel,
+        event_smooth_s=event_smooth_s,
+        event_min_gap_s=event_min_gap_s,
+        event_relative_prominence=event_relative_prominence,
         max_tau_s=max_tau_s,
-        gcc_interp=gcc_interp,
-        pair_mode=pair_mode,
-        reference_count=reference_count,
-        microphone_pairs=microphone_pairs,
+        tdoa_envelope_smooth_s=tdoa_envelope_smooth_s,
+        tdoa_template_s=tdoa_template_s,
+        tdoa_candidate_count=tdoa_candidate_count,
+        max_tdoa_rate=max_tdoa_rate,
+        tdoa_track_weight=tdoa_track_weight,
+        use_temporal_tracking=use_temporal_tracking,
         speed_of_sound=speed_of_sound,
-        motion_velocity_change_sigma_mps=motion_velocity_change_sigma_mps,
-        likelihood=likelihood,
-        estimate_clock_offsets=estimate_clock_offsets,
-        estimate_clock_drifts=estimate_clock_drifts,
-        estimate_speed_of_sound=estimate_speed_of_sound,
-        distance_priors=distance_priors,
         best_sigma_samples=best_sigma_samples,
         worst_sigma_samples=worst_sigma_samples,
-        max_nfev=max_nfev,
-        compute_laplace_uncertainty=compute_laplace_uncertainty,
+        receiver_subset_budget=receiver_subset_budget,
+        event_subset_budget=event_subset_budget,
+        root_start_count=root_start_count,
+        metric_start_count=metric_start_count,
+        extra_microphone_inlier_rms_m=extra_microphone_inlier_rms_m,
+        planar_membership_tolerance=planar_membership_tolerance,
+        planar_metric_acceptance_rms_m=planar_metric_acceptance_rms_m,
+        planar_extra_microphone_rms_m=planar_extra_microphone_rms_m,
+        angle_constraint=angle_constraint,
+        model=model,
+        refinement=refinement,
+        refinement_max_nfev=refinement_max_nfev,
+        refinement_improvement_tolerance=refinement_improvement_tolerance,
     )

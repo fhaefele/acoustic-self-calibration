@@ -8,6 +8,7 @@ import numpy as np
 from .geometry import apply_rigid, rigid_align
 from .ground_truth import GroundTruth
 from .pipeline import AudioCalibrationResult
+from .stratified.solver import PlanarCalibrationResult
 
 
 @dataclass(frozen=True)
@@ -162,20 +163,23 @@ def evaluate_against_ground_truth(
     result: AudioCalibrationResult,
     ground_truth: GroundTruth,
 ) -> GroundTruthEvaluation:
-    """Compare one calibration result against a reference scene."""
-    calibration = result.calibration
+    """Compare one solved stratified audio result against a reference scene."""
+    if isinstance(result.calibration, PlanarCalibrationResult):
+        raise ValueError("planar source height is unsigned; use observable planar evaluation")
+    if result.microphone_positions_m is None or result.source_positions_m is None:
+        raise ValueError("calibration result has no solved geometry to evaluate")
     estimate = GroundTruth(
-        microphone_positions_m=calibration.microphone_positions,
-        source_times_s=result.frame_times_s,
-        source_positions_m=calibration.source_positions,
+        microphone_positions_m=result.microphone_positions_m,
+        source_times_s=result.event_times_s,
+        source_positions_m=result.source_positions_m,
         metadata={},
         scene_role="estimate",
     )
     return evaluate_scenes(
         estimate,
         ground_truth,
-        microphone_position_std_m=calibration.microphone_position_std_m,
-        source_position_std_m=calibration.source_position_std_m,
+        microphone_position_std_m=None,
+        source_position_std_m=None,
     )
 
 
@@ -199,7 +203,9 @@ def evaluation_to_dict(evaluation: GroundTruthEvaluation) -> dict[str, Any]:
         "source": {
             "estimate_indices": evaluation.source_estimate_indices.tolist(),
             "aligned_estimate_m": evaluation.aligned_source_positions_m.tolist(),
-            "ground_truth_at_estimate_times_m": evaluation.ground_truth_source_at_estimate_times_m.tolist(),
+            "ground_truth_at_estimate_times_m": (
+                evaluation.ground_truth_source_at_estimate_times_m.tolist()
+            ),
             "error_m": evaluation.source_error_m.tolist(),
             "rms_error_m": evaluation.source_rms_error_m,
             "mean_error_m": evaluation.source_mean_error_m,

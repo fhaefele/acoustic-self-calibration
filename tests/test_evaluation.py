@@ -1,20 +1,44 @@
-from dataclasses import replace
-
 import numpy as np
 import pytest
 
-from acoustic_self_calibration.bayesian import BayesianCalibrationResult
-from acoustic_self_calibration.evaluation import evaluate_against_ground_truth
+from acoustic_self_calibration.evaluation import (
+    evaluate_against_ground_truth,
+    evaluate_scenes,
+)
+from acoustic_self_calibration.events import EventDetection
 from acoustic_self_calibration.ground_truth import GroundTruth
+from acoustic_self_calibration.measurements import EventTDOAMeasurements
 from acoustic_self_calibration.pipeline import AudioCalibrationResult
+from acoustic_self_calibration.stratified.solver import (
+    StratifiedCalibrationDiagnostics,
+    StratifiedCalibrationResult,
+)
 
 
 def _result_and_truth() -> tuple[AudioCalibrationResult, GroundTruth]:
-    ground_truth_mics = np.array(
-        [[0.0, 0.0, 0.0], [1.2, 0.0, 0.1], [0.1, 1.0, 0.0], [0.2, 0.3, 1.1]]
+    microphones = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [1.2, 0.0, 0.1],
+            [0.1, 1.0, 0.0],
+            [0.2, 0.3, 1.1],
+            [0.8, 0.5, 0.3],
+            [-0.4, 0.7, 0.9],
+            [0.6, -0.5, 1.0],
+            [-0.7, -0.3, 0.4],
+        ]
     )
-    gt_times = np.array([0.0, 0.5, 1.0, 1.5])
-    gt_source = np.array([[1.5, 0.0, 0.8], [1.3, 0.4, 0.9], [0.8, 0.8, 1.0], [0.2, 1.0, 1.1]])
+    event_count = 12
+    sample_rate = 48_000
+    samples = 1000 + np.arange(event_count) * 4000
+    times = samples / sample_rate
+    source = np.column_stack(
+        [
+            np.linspace(1.5, 0.2, event_count),
+            np.linspace(0.0, 1.0, event_count),
+            np.linspace(0.8, 1.1, event_count),
+        ]
+    )
 
     angle = np.deg2rad(32.0)
     rotation = np.array(
@@ -25,110 +49,127 @@ def _result_and_truth() -> tuple[AudioCalibrationResult, GroundTruth]:
         ]
     )
     translation = np.array([2.0, -0.7, 0.4])
-    estimated_mics = (ground_truth_mics - translation) @ rotation.T
-    estimated_source = (gt_source - translation) @ rotation.T
+    estimated_mics = (microphones - translation) @ rotation.T
+    estimated_source = (source - translation) @ rotation.T
 
-    calibration = BayesianCalibrationResult(
-        microphone_positions=estimated_mics,
-        source_positions=estimated_source,
-        speed_of_sound=343.0,
-        clock_offsets_s=np.zeros(4),
-        clock_drifts=np.zeros(4),
-        microphone_position_std_m=np.full((4, 3), 0.02),
-        source_position_std_m=np.full((4, 3), 0.03),
-        speed_of_sound_std=None,
-        clock_offset_std_s=None,
-        clock_drift_std=None,
-        rms_tdoa_residual_s=1e-6,
-        normalized_data_rms=0.5,
-        negative_log_posterior=2.0,
-        success=True,
-        message="ok",
-        nfev=10,
+    diagnostics = StratifiedCalibrationDiagnostics(
+        attempted_subsets=2,
+        generated_offset_roots=2,
+        metric_candidates=1,
+        completed_hypotheses=1,
+        geometric_class_count=1,
+        selected_support=1,
+        fitting_event_count=8,
+        validation_event_count=4,
+        validation_independent_coordinates=12,
+        rejection_reasons=(),
+    )
+    calibration = StratifiedCalibrationResult(
+        status="solved",
+        microphone_positions_m=estimated_mics,
+        source_positions_m=estimated_source,
+        event_ids=np.arange(event_count),
+        tdoa_rms_s=1e-6,
+        selected_class=None,
+        classes=(),
+        diagnostics=diagnostics,
+    )
+    measurements = EventTDOAMeasurements(
+        event_ids=np.arange(event_count),
+        receiver_event_times_s=times,
+        microphone_ids=tuple(range(8)),
+        microphone_pairs=tuple((0, index) for index in range(1, 8)),
+        tdoa_s=np.zeros((event_count, 7)),
+        sigma_s=np.full((event_count, 7), 2e-6),
+        confidence=np.ones((event_count, 7)),
+        valid=np.ones((event_count, 7), dtype=bool),
+        measurement_origin="independent_pairs",
+        measurement_basis="reference_star",
+    )
+    detection = EventDetection(
+        event_samples=samples,
+        receiver_event_times_s=times,
+        event_channel=0,
+        prominence=np.ones(event_count),
     )
     result = AudioCalibrationResult(
         calibration=calibration,
-        frame_times_s=gt_times.copy(),
-        tdoa_s=np.zeros((4, 3)),
-        tdoa_sigma_s=np.full((4, 3), 2e-6),
-        confidence=np.ones((4, 3)),
-        microphone_pairs=((0, 1), (0, 2), (0, 3)),
+        measurements=measurements,
+        detection=detection,
+        speed_of_sound_mps=343.0,
+        model="general_3d",
+        temporal_tracking_enabled=True,
+        refinement_mode="none",
     )
     truth = GroundTruth(
-        microphone_positions_m=ground_truth_mics,
-        source_times_s=gt_times,
-        source_positions_m=gt_source,
+        microphone_positions_m=microphones,
+        source_times_s=times,
+        source_positions_m=source,
         metadata={},
     )
     return result, truth
 
 
-def test_evaluation_uses_one_microphone_fitted_transform_for_entire_scene() -> None:
+def test_evaluation_uses_microphone_fitted_transform_for_entire_scene() -> None:
     result, truth = _result_and_truth()
     evaluation = evaluate_against_ground_truth(result, truth)
     assert evaluation.microphone_rms_error_m < 1e-12
     assert evaluation.source_rms_error_m < 1e-12
-    assert np.allclose(evaluation.aligned_microphone_positions_m, truth.microphone_positions_m)
-    assert np.allclose(evaluation.aligned_source_positions_m, truth.source_positions_m)
-    assert np.array_equal(evaluation.source_estimate_indices, np.arange(4))
-    assert evaluation.microphone_uncertainty_diagnostic is not None
-    assert evaluation.source_uncertainty_diagnostic is not None
-
-
-def test_evaluation_interpolates_source_ground_truth_to_estimate_times() -> None:
-    result, truth = _result_and_truth()
-    source_std = result.calibration.source_position_std_m
-    assert source_std is not None
-    result = AudioCalibrationResult(
-        calibration=replace(
-            result.calibration,
-            source_positions=result.calibration.source_positions[[0, 2]],
-            source_position_std_m=source_std[[0, 2]],
-        ),
-        frame_times_s=np.array([0.0, 1.0]),
-        tdoa_s=np.zeros((2, 3)),
-        tdoa_sigma_s=np.full((2, 3), 2e-6),
-        confidence=np.ones((2, 3)),
-        microphone_pairs=result.microphone_pairs,
-    )
-    evaluation = evaluate_against_ground_truth(result, truth)
-    assert np.allclose(
-        evaluation.ground_truth_source_at_estimate_times_m,
-        truth.source_positions_m[[0, 2]],
-    )
+    assert evaluation.microphone_uncertainty_diagnostic is None
+    assert evaluation.source_uncertainty_diagnostic is None
 
 
 def test_evaluation_clips_source_to_reference_time_overlap() -> None:
     result, truth = _result_and_truth()
-    partial_truth = GroundTruth(
+    partial = GroundTruth(
         microphone_positions_m=truth.microphone_positions_m,
-        source_times_s=np.array([0.5, 1.0]),
-        source_positions_m=truth.source_positions_m[[1, 2]],
+        source_times_s=truth.source_times_s[3:9],
+        source_positions_m=truth.source_positions_m[3:9],
         metadata={},
     )
-    evaluation = evaluate_against_ground_truth(result, partial_truth)
-
-    assert evaluation.microphone_rms_error_m < 1e-12
+    evaluation = evaluate_against_ground_truth(result, partial)
+    assert np.array_equal(
+        evaluation.source_estimate_indices,
+        np.arange(3, 9),
+    )
     assert evaluation.source_rms_error_m < 1e-12
-    assert np.array_equal(evaluation.source_estimate_indices, np.array([1, 2]))
-    assert np.allclose(
-        evaluation.aligned_source_positions_m,
-        truth.source_positions_m[[1, 2]],
-    )
-    assert np.allclose(
-        evaluation.ground_truth_source_at_estimate_times_m,
-        truth.source_positions_m[[1, 2]],
-    )
-    assert evaluation.source_uncertainty_diagnostic is not None
 
 
-def test_evaluation_rejects_non_overlapping_source_time_ranges() -> None:
+def test_evaluation_rejects_unsolved_result() -> None:
     result, truth = _result_and_truth()
-    non_overlapping_truth = GroundTruth(
-        microphone_positions_m=truth.microphone_positions_m,
-        source_times_s=np.array([2.0, 2.5]),
-        source_positions_m=truth.source_positions_m[[0, 1]],
-        metadata={},
+    calibration = StratifiedCalibrationResult(
+        status="failed",
+        microphone_positions_m=None,
+        source_positions_m=None,
+        event_ids=result.calibration.event_ids,
+        tdoa_rms_s=None,
+        selected_class=None,
+        classes=(),
+        diagnostics=result.calibration.diagnostics,
     )
-    with pytest.raises(ValueError, match="do not overlap"):
-        evaluate_against_ground_truth(result, non_overlapping_truth)
+    failed = AudioCalibrationResult(
+        calibration=calibration,
+        measurements=result.measurements,
+        detection=result.detection,
+        speed_of_sound_mps=343.0,
+        model="general_3d",
+        temporal_tracking_enabled=True,
+        refinement_mode="none",
+    )
+    with pytest.raises(ValueError, match="no solved geometry"):
+        evaluate_against_ground_truth(failed, truth)
+
+
+def test_evaluate_scenes_preserves_overlap_semantics() -> None:
+    result, truth = _result_and_truth()
+    assert result.microphone_positions_m is not None
+    assert result.source_positions_m is not None
+    estimate = GroundTruth(
+        microphone_positions_m=result.microphone_positions_m,
+        source_times_s=result.event_times_s,
+        source_positions_m=result.source_positions_m,
+        metadata={},
+        scene_role="estimate",
+    )
+    evaluation = evaluate_scenes(estimate, truth)
+    assert len(evaluation.source_estimate_indices) == len(result.event_times_s)

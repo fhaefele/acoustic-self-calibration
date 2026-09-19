@@ -248,8 +248,9 @@ def plot_calibration_comparison(
     ground_truth: GroundTruth | None = None,
     evaluation: GroundTruthEvaluation | None = None,
 ) -> Path:
-    """Write one 2x2 figure with 3-D, XY, XZ, and YZ views."""
-    source_std_m = result.calibration.source_position_std_m
+    """Write one 2x2 figure for a solved stratified audio result."""
+    if result.microphone_positions_m is None or result.source_positions_m is None:
+        raise ValueError("calibration result has no solved geometry to plot")
     if ground_truth is not None:
         if evaluation is None:
             evaluation = evaluate_against_ground_truth(result, ground_truth)
@@ -257,15 +258,11 @@ def plot_calibration_comparison(
         estimate_source = evaluation.aligned_source_positions_m
         reference_mics = ground_truth.microphone_positions_m
         reference_source = evaluation.ground_truth_source_at_estimate_times_m
-        rotation = evaluation.rotation
-        if source_std_m is not None:
-            source_std_m = source_std_m[evaluation.source_estimate_indices]
     else:
-        estimate_mics = result.calibration.microphone_positions
-        estimate_source = result.calibration.source_positions
+        estimate_mics = result.microphone_positions_m
+        estimate_source = result.source_positions_m
         reference_mics = None
         reference_source = None
-        rotation = np.eye(3)
 
     return _write_figure(
         path,
@@ -274,12 +271,6 @@ def plot_calibration_comparison(
         reference_mics=reference_mics,
         reference_source=reference_source,
         evaluation=evaluation,
-        mic_covariances=_aligned_covariances(
-            result.calibration.microphone_position_std_m,
-            rotation,
-        ),
-        source_covariances=_aligned_covariances(
-            source_std_m,
-            rotation,
-        ),
+        mic_covariances=None,
+        source_covariances=None,
     )
