@@ -1012,8 +1012,7 @@ def calibrate_planar_tdoa_8mic(
             if angle_constraint is None and identifiability.continuous_metric_nullity > 0:
                 if (
                     continuous_ambiguity_dimension is None
-                    or identifiability.continuous_metric_nullity
-                    > continuous_ambiguity_dimension
+                    or identifiability.continuous_metric_nullity > continuous_ambiguity_dimension
                 ):
                     continuous_ambiguity_dimension = identifiability.continuous_metric_nullity
                     continuous_ambiguity_nullspace = np.array(

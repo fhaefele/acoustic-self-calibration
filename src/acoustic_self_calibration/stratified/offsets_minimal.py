@@ -129,9 +129,7 @@ def _halton_starts(
         # spending every start on an independent six-dimensional Halton draw.
         correlated_count = min(start_count, max(6, start_count // 3))
         correlated_radii = np.geomspace(0.2, 16.0, correlated_count)
-        starts[:correlated_count] = (
-            minimum[None, :] - scale * correlated_radii[:, None]
-        )
+        starts[:correlated_count] = minimum[None, :] - scale * correlated_radii[:, None]
 
         lower = minimum - 100.0 * scale
         upper = minimum - 1e-10 * scale
