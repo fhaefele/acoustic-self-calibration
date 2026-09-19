@@ -118,17 +118,20 @@ def _halton_starts(
 ) -> tuple[np.ndarray, np.ndarray | None, np.ndarray | None]:
     scale = _measurement_scale(arrivals)
     minimum = np.min(arrivals, axis=0)
-    points = qmc.Halton(d=EVENT_COUNT, scramble=False).random(start_count)
+    pool_count = max(start_count, 8 * start_count)
+    pool = qmc.Halton(d=EVENT_COUNT, scramble=False).random(pool_count)
+    indices = np.linspace(0, pool_count - 1, start_count, dtype=int)
+    points = pool[indices]
     logarithmic = np.exp(np.log(0.08) + (np.log(30.0) - np.log(0.08)) * points)
     if physical_only:
         starts = minimum[None, :] - scale * logarithmic
 
-        # Physical event offsets are -d(reference, source), so their distance below
-        # the per-event lower bound is strongly correlated across a six-event seed.
-        # Reserve part of the fixed start budget for common-range starts instead of
-        # spending every start on an independent six-dimensional Halton draw.
-        correlated_count = min(start_count, max(6, start_count // 3))
-        correlated_radii = np.geomspace(0.2, 16.0, correlated_count)
+        # Physical event offsets are -d(reference, source). Keep a small family of
+        # common-range starts, but spread the remaining fixed budget across a much
+        # longer deterministic Halton prefix so later physical basins are sampled
+        # without increasing the caller's start count.
+        correlated_count = min(start_count, max(6, start_count // 4))
+        correlated_radii = np.geomspace(0.75, 4.5, correlated_count)
         starts[:correlated_count] = minimum[None, :] - scale * correlated_radii[:, None]
 
         lower = minimum - 100.0 * scale
