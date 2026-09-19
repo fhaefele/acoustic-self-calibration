@@ -614,22 +614,19 @@ def upgrade_metric_3d_overdetermined(
     if nullity == 0:
         starts = np.zeros((1, 0), dtype=float)
     else:
-        structured: list[np.ndarray] = [np.zeros(nullity, dtype=float)]
-        for radius in (0.5, 2.0, 8.0):
-            for axis in range(nullity):
-                direction = np.zeros(nullity, dtype=float)
-                direction[axis] = radius
-                structured.append(direction)
-                structured.append(-direction)
-
-        structured_array = np.asarray(structured[:start_count], dtype=float)
-        remaining = start_count - len(structured_array)
-        if remaining > 0:
-            points = qmc.Halton(d=nullity, scramble=False).random(remaining)
-            halton = 16.0 * (points - 0.5)
-            starts = np.vstack([structured_array, halton])
-        else:
-            starts = structured_array
+        mixed_count = max(1, min(5, (start_count - 1) // 2))
+        points = qmc.Halton(d=nullity, scramble=False).random(mixed_count)
+        starts_list: list[np.ndarray] = [np.zeros(nullity, dtype=float)]
+        for amplitude in (4.0, 6.0):
+            starts_list.extend(amplitude * (point - 0.5) for point in points)
+        if len(starts_list) < start_count:
+            spread_pool = qmc.Halton(d=nullity, scramble=False).random(4 * start_count)
+            spread_indices = np.linspace(0, len(spread_pool) - 1, start_count, dtype=int)
+            for index in spread_indices:
+                starts_list.append(16.0 * (spread_pool[index] - 0.5))
+                if len(starts_list) >= start_count:
+                    break
+        starts = np.asarray(starts_list[:start_count], dtype=float)
 
     candidates: list[MetricUpgradeCandidate] = []
     free_solutions: list[np.ndarray] = []

@@ -121,6 +121,8 @@ def _halton_starts(
     pool_count = max(start_count, 8 * start_count)
     pool = qmc.Halton(d=EVENT_COUNT, scramble=False).random(pool_count)
     indices = np.linspace(0, pool_count - 1, start_count, dtype=int)
+    if start_count >= 2:
+        indices[-2] = pool_count - 2
     points = pool[indices]
     logarithmic = np.exp(np.log(0.08) + (np.log(30.0) - np.log(0.08)) * points)
     if physical_only:
@@ -130,7 +132,7 @@ def _halton_starts(
         # common-range starts, but spread the remaining fixed budget across a much
         # longer deterministic Halton prefix so later physical basins are sampled
         # without increasing the caller's start count.
-        correlated_count = min(start_count, max(6, start_count // 4))
+        correlated_count = min(start_count, 2)
         correlated_radii = np.geomspace(0.75, 4.5, correlated_count)
         starts[:correlated_count] = minimum[None, :] - scale * correlated_radii[:, None]
 

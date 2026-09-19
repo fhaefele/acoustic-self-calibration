@@ -227,36 +227,40 @@ def localize_receiver_from_ranges(
         best_score = float(
             np.median(np.abs(np.linalg.norm(sources - receiver[None, :], axis=1) - ranges))
         )
-        for subset in combinations(range(len(sources)), 4):
-            candidate, candidate_rank = linear_solution(np.asarray(subset, dtype=int))
-            if candidate_rank < 3:
-                continue
-            residual = np.abs(np.linalg.norm(sources - candidate[None, :], axis=1) - ranges)
-            score = float(np.median(residual))
-            if score < best_score:
-                best_receiver = candidate
-                best_rank = candidate_rank
-                best_score = score
+        exact_tolerance = 1e-10 * max(1.0, float(np.max(ranges)))
+        if best_score > exact_tolerance:
+            for subset in combinations(range(len(sources)), 4):
+                candidate, candidate_rank = linear_solution(np.asarray(subset, dtype=int))
+                if candidate_rank < 3:
+                    continue
+                residual = np.abs(np.linalg.norm(sources - candidate[None, :], axis=1) - ranges)
+                score = float(np.median(residual))
+                if score < best_score:
+                    best_receiver = candidate
+                    best_rank = candidate_rank
+                    best_score = score
 
-        polished = least_squares(
-            lambda point: np.linalg.norm(sources - point[None, :], axis=1) - ranges,
-            best_receiver,
-            loss="huber",
-            f_scale=huber_scale_m,
-            max_nfev=200,
-            xtol=1e-12,
-            ftol=1e-12,
-            gtol=1e-12,
-        )
-        polished_receiver = np.asarray(polished.x, dtype=float)
-        polished_score = float(
-            np.median(np.abs(np.linalg.norm(sources - polished_receiver[None, :], axis=1) - ranges))
-        )
-        if polished_score < best_score:
-            receiver = polished_receiver
-        else:
-            receiver = best_receiver
-        rank = best_rank
+            polished = least_squares(
+                lambda point: np.linalg.norm(sources - point[None, :], axis=1) - ranges,
+                best_receiver,
+                loss="huber",
+                f_scale=huber_scale_m,
+                max_nfev=200,
+                xtol=1e-12,
+                ftol=1e-12,
+                gtol=1e-12,
+            )
+            polished_receiver = np.asarray(polished.x, dtype=float)
+            polished_score = float(
+                np.median(
+                    np.abs(np.linalg.norm(sources - polished_receiver[None, :], axis=1) - ranges)
+                )
+            )
+            if polished_score < best_score:
+                receiver = polished_receiver
+            else:
+                receiver = best_receiver
+            rank = best_rank
 
     residual = np.linalg.norm(sources - receiver[None, :], axis=1) - ranges
     absolute = np.abs(residual)
