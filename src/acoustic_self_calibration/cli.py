@@ -7,73 +7,84 @@ from importlib.metadata import version
 from pathlib import Path
 from typing import Any
 
-from .bayesian import DistancePrior
+import numpy as np
+
 from .export import write_calibration_outputs, write_scene_comparison_outputs
 from .ground_truth import validate_ground_truth_json
+from .stratified.constraints import PlanarAngleConstraint
 from .wav import calibrate_wav
 
 
-def _distance_prior(value: str) -> DistancePrior:
+def _right_angle_receivers(value: str) -> tuple[int, int, int]:
     try:
-        microphone_a, microphone_b, distance_m, sigma_m = value.split(",")
-        return DistancePrior(
-            microphone_a=int(microphone_a),
-            microphone_b=int(microphone_b),
-            distance_m=float(distance_m),
-            sigma_m=float(sigma_m),
-        )
+        center, arm_a, arm_b = (int(item.strip()) for item in value.split(","))
     except (TypeError, ValueError) as error:
+        raise argparse.ArgumentTypeError("right-angle must be CENTER,ARM_A,ARM_B") from error
+    if len({center, arm_a, arm_b}) != 3 or min(center, arm_a, arm_b) < 0:
         raise argparse.ArgumentTypeError(
-            "distance priors must be MIC_A,MIC_B,DISTANCE_M,SIGMA_M"
-        ) from error
+            "right-angle receiver IDs must be distinct and non-negative"
+        )
+    return center, arm_a, arm_b
 
 
 def _add_solver_options(parser: argparse.ArgumentParser) -> None:
-    audio = parser.add_argument_group("audio and TDOA")
-    audio.add_argument("--frame-size", type=int, default=1024)
-    audio.add_argument("--hop-size", type=int, default=4096)
-    audio.add_argument("--max-tau-ms", type=float, default=30.0)
-    audio.add_argument("--gcc-interp", type=int, default=16)
-    audio.add_argument(
-        "--pair-mode",
-        choices=("reference", "redundant", "all"),
-        default="redundant",
+    audio = parser.add_argument_group("event detection and TDOA")
+    audio.add_argument("--event-channel", type=int)
+    audio.add_argument("--event-smooth-ms", type=float, default=0.3)
+    audio.add_argument("--event-min-gap-ms", type=float, default=3.0)
+    audio.add_argument("--event-prominence", type=float, default=0.003)
+    audio.add_argument("--max-tau-ms", type=float, default=10.0)
+    audio.add_argument("--tdoa-template-ms", type=float, default=1.8)
+    audio.add_argument("--tdoa-candidates", type=int, default=8)
+    audio.add_argument("--max-tdoa-rate", type=float, default=0.05)
+    audio.add_argument("--tdoa-track-weight", type=float, default=0.4)
+    audio.add_argument("--no-temporal-tracking", action="store_true")
+
+    solver = parser.add_argument_group("stratified solver")
+    solver.add_argument(
+        "--model",
+        choices=("general-3d", "receiver2d-source3d"),
+        default="general-3d",
     )
-    audio.add_argument("--reference-count", type=int, default=2)
-
-    model = parser.add_argument_group("model and solver")
-    model.add_argument("--likelihood", choices=("cauchy", "gaussian"), default="cauchy")
-    model.add_argument("--speed-of-sound", type=float, default=343.0)
-    model.add_argument("--motion-sigma-mps", type=float, default=3.0)
-    model.add_argument("--best-sigma-samples", type=float, default=0.35)
-    model.add_argument("--worst-sigma-samples", type=float, default=4.0)
-    model.add_argument("--max-nfev", type=int, default=4000)
-
-    clocks = parser.add_argument_group("clocks and metric scale")
-    clocks.add_argument("--estimate-clock-offsets", action="store_true")
-    clocks.add_argument("--estimate-clock-drifts", action="store_true")
-    clocks.add_argument("--estimate-speed-of-sound", action="store_true")
-    clocks.add_argument(
-        "--distance-prior",
-        action="append",
-        default=[],
-        type=_distance_prior,
-        metavar="MIC_A,MIC_B,DISTANCE_M,SIGMA_M",
-        help="known microphone baseline; repeat as needed",
+    solver.add_argument("--speed-of-sound", type=float, default=343.0)
+    solver.add_argument("--best-sigma-samples", type=float, default=0.35)
+    solver.add_argument("--worst-sigma-samples", type=float, default=4.0)
+    solver.add_argument("--receiver-subset-budget", type=int, default=3)
+    solver.add_argument("--event-subset-budget", type=int, default=2)
+    solver.add_argument("--root-start-count", type=int, default=32)
+    solver.add_argument("--metric-start-count", type=int, default=20)
+    solver.add_argument("--extra-microphone-rms-m", type=float, default=0.05)
+    solver.add_argument("--planar-membership-tolerance", type=float, default=5e-3)
+    solver.add_argument("--planar-metric-rms-m", type=float, default=5e-3)
+    solver.add_argument("--planar-extra-microphone-rms-m", type=float, default=0.02)
+    solver.add_argument(
+        "--right-angle",
+        type=_right_angle_receivers,
+        metavar="CENTER,ARM_A,ARM_B",
+        help="explicit known 90-degree planar arm constraint",
     )
-
-    uncertainty = parser.add_argument_group("uncertainty")
-    uncertainty.add_argument(
-        "--no-uncertainty",
-        action="store_true",
-        help="skip the Laplace uncertainty calculation",
+    solver.add_argument(
+        "--constraint-provenance",
+        help="required provenance text when --right-angle is supplied",
+    )
+    solver.add_argument(
+        "--refinement",
+        choices=("none", "wls", "huber"),
+        default="none",
+        help="optional post-selection measurement-only nonlinear refinement",
+    )
+    solver.add_argument("--refinement-max-nfev", type=int, default=200)
+    solver.add_argument(
+        "--refinement-improvement-tolerance",
+        type=float,
+        default=1e-10,
     )
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="asc",
-        description="Bayesian 3-D acoustic self-calibration and scene comparison.",
+        description="Stratified TDOA acoustic self-calibration and scene comparison.",
     )
     parser.add_argument(
         "--version",
@@ -85,20 +96,23 @@ def build_parser() -> argparse.ArgumentParser:
     calibrate = subparsers.add_parser(
         "calibrate",
         help="calibrate a multichannel WAV recording",
-        description="Calibrate a microphone array and moving source from a multichannel WAV file.",
+        description=(
+            "Detect transient events and calibrate a synchronized microphone array "
+            "with the stratified TDOA backend."
+        ),
     )
     calibrate.add_argument("wav", type=Path, help="input multichannel WAV file")
     calibrate.add_argument(
         "-o",
         "--output",
         type=Path,
-        help="output prefix for RESULT.json and RESULT.png (default: INPUT_calibration)",
+        help="output prefix for RESULT.json and RESULT.png",
     )
     calibrate.add_argument(
         "-r",
         "--reference",
         type=Path,
-        help="canonical scene JSON used as the comparison reference",
+        help="canonical scene JSON used only for post-calibration comparison",
     )
     _add_solver_options(calibrate)
     calibrate.set_defaults(handler=_run_calibrate)
@@ -130,31 +144,33 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _settings_dict(args: argparse.Namespace) -> dict[str, Any]:
     return {
-        "frame_size": args.frame_size,
-        "hop_size": args.hop_size,
+        "event_channel": args.event_channel,
+        "event_smooth_s": args.event_smooth_ms / 1000.0,
+        "event_min_gap_s": args.event_min_gap_ms / 1000.0,
+        "event_relative_prominence": args.event_prominence,
         "max_tau_s": args.max_tau_ms / 1000.0,
-        "gcc_interp": args.gcc_interp,
-        "pair_mode": args.pair_mode,
-        "reference_count": args.reference_count,
-        "likelihood": args.likelihood,
+        "tdoa_template_s": args.tdoa_template_ms / 1000.0,
+        "tdoa_candidate_count": args.tdoa_candidates,
+        "max_tdoa_rate": args.max_tdoa_rate,
+        "tdoa_track_weight": args.tdoa_track_weight,
+        "use_temporal_tracking": not args.no_temporal_tracking,
+        "model": args.model,
         "speed_of_sound_mps": args.speed_of_sound,
-        "motion_velocity_change_sigma_mps": args.motion_sigma_mps,
-        "estimate_clock_offsets": args.estimate_clock_offsets,
-        "estimate_clock_drifts": args.estimate_clock_drifts,
-        "estimate_speed_of_sound": args.estimate_speed_of_sound,
-        "distance_priors": [
-            {
-                "microphone_a": prior.microphone_a,
-                "microphone_b": prior.microphone_b,
-                "distance_m": prior.distance_m,
-                "sigma_m": prior.sigma_m,
-            }
-            for prior in args.distance_prior
-        ],
         "best_sigma_samples": args.best_sigma_samples,
         "worst_sigma_samples": args.worst_sigma_samples,
-        "max_nfev": args.max_nfev,
-        "compute_laplace_uncertainty": not args.no_uncertainty,
+        "receiver_subset_budget": args.receiver_subset_budget,
+        "event_subset_budget": args.event_subset_budget,
+        "root_start_count": args.root_start_count,
+        "metric_start_count": args.metric_start_count,
+        "extra_microphone_inlier_rms_m": args.extra_microphone_rms_m,
+        "planar_membership_tolerance": args.planar_membership_tolerance,
+        "planar_metric_acceptance_rms_m": args.planar_metric_rms_m,
+        "planar_extra_microphone_rms_m": args.planar_extra_microphone_rms_m,
+        "right_angle": (None if args.right_angle is None else list(args.right_angle)),
+        "constraint_provenance": args.constraint_provenance,
+        "refinement": args.refinement,
+        "refinement_max_nfev": args.refinement_max_nfev,
+        "refinement_improvement_tolerance": (args.refinement_improvement_tolerance),
     }
 
 
@@ -164,26 +180,63 @@ def _run_calibrate(args: argparse.Namespace) -> int:
         output = args.wav.with_suffix("").with_name(f"{args.wav.stem}_calibration")
 
     reference = None if args.reference is None else validate_ground_truth_json(args.reference)
+    model = "general_3d" if args.model == "general-3d" else "receiver2d_source3d"
+    angle_constraint = None
+    if args.right_angle is not None:
+        if model != "receiver2d_source3d":
+            print(
+                "--right-angle requires --model receiver2d-source3d",
+                file=sys.stderr,
+            )
+            return 2
+        if not args.constraint_provenance:
+            print(
+                "--constraint-provenance is required with --right-angle",
+                file=sys.stderr,
+            )
+            return 2
+        center, arm_a, arm_b = args.right_angle
+        angle_constraint = PlanarAngleConstraint(
+            center_receiver=center,
+            arm_a_receiver=arm_a,
+            arm_b_receiver=arm_b,
+            angle_rad=np.pi / 2.0,
+            provenance=args.constraint_provenance,
+        )
+
     result = calibrate_wav(
         args.wav,
-        frame_size=args.frame_size,
-        hop_size=args.hop_size,
+        event_channel=args.event_channel,
+        event_smooth_s=args.event_smooth_ms / 1000.0,
+        event_min_gap_s=args.event_min_gap_ms / 1000.0,
+        event_relative_prominence=args.event_prominence,
         max_tau_s=args.max_tau_ms / 1000.0,
-        gcc_interp=args.gcc_interp,
-        pair_mode=args.pair_mode,
-        reference_count=args.reference_count,
+        tdoa_template_s=args.tdoa_template_ms / 1000.0,
+        tdoa_candidate_count=args.tdoa_candidates,
+        max_tdoa_rate=args.max_tdoa_rate,
+        tdoa_track_weight=args.tdoa_track_weight,
+        use_temporal_tracking=not args.no_temporal_tracking,
         speed_of_sound=args.speed_of_sound,
-        motion_velocity_change_sigma_mps=args.motion_sigma_mps,
-        likelihood=args.likelihood,
-        estimate_clock_offsets=args.estimate_clock_offsets,
-        estimate_clock_drifts=args.estimate_clock_drifts,
-        estimate_speed_of_sound=args.estimate_speed_of_sound,
-        distance_priors=tuple(args.distance_prior),
         best_sigma_samples=args.best_sigma_samples,
         worst_sigma_samples=args.worst_sigma_samples,
-        max_nfev=args.max_nfev,
-        compute_laplace_uncertainty=not args.no_uncertainty,
+        receiver_subset_budget=args.receiver_subset_budget,
+        event_subset_budget=args.event_subset_budget,
+        root_start_count=args.root_start_count,
+        metric_start_count=args.metric_start_count,
+        extra_microphone_inlier_rms_m=args.extra_microphone_rms_m,
+        planar_membership_tolerance=args.planar_membership_tolerance,
+        planar_metric_acceptance_rms_m=args.planar_metric_rms_m,
+        planar_extra_microphone_rms_m=args.planar_extra_microphone_rms_m,
+        angle_constraint=angle_constraint,
+        model=model,
+        refinement=args.refinement,
+        refinement_max_nfev=args.refinement_max_nfev,
+        refinement_improvement_tolerance=(args.refinement_improvement_tolerance),
     )
+    if result.microphone_positions_m is None or result.source_positions_m is None:
+        print(f"calibration status: {result.status}", file=sys.stderr)
+        return 2
+
     paths = write_calibration_outputs(
         result,
         output,
@@ -191,17 +244,14 @@ def _run_calibrate(args: argparse.Namespace) -> int:
         settings=_settings_dict(args),
         ground_truth=reference,
     )
-    calibration = result.calibration
-    print(f"success: {calibration.success}")
-    print(f"microphones: {len(calibration.microphone_positions)}")
-    print(f"source states: {len(calibration.source_positions)}")
-    print(f"TDOA RMS residual: {1e6 * calibration.rms_tdoa_residual_s:.3f} us")
+    print(f"status: {result.status}")
+    print(f"microphones: {len(result.microphone_positions_m)}")
+    print(f"source states: {len(result.source_positions_m)}")
+    if result.rms_tdoa_residual_s is not None:
+        print(f"TDOA RMS residual: {1e6 * result.rms_tdoa_residual_s:.3f} us")
     print(f"JSON: {paths.json}")
     print(f"figure: {paths.figure}")
-    if not calibration.success:
-        print(f"optimizer message: {calibration.message}")
-        return 2
-    return 0
+    return 0 if result.status == "solved" else 2
 
 
 def _run_check(args: argparse.Namespace) -> int:
