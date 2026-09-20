@@ -4,7 +4,9 @@ from dataclasses import dataclass, replace
 from typing import Literal
 
 import numpy as np
+from scipy.optimize import least_squares, minimize
 
+from ..geometry import rigid_align, rms_position_error
 from ..measurements import EventTDOAMeasurements
 from .constraints import PlanarAngleConstraint
 from .expansion import (
@@ -517,7 +519,11 @@ def _complete_geometry(
     root_id: int,
     root_generating_equation_rms: float,
     metric_start_count: int,
-) -> tuple[FullGeometryHypothesis, np.ndarray] | None:
+) -> (
+    tuple[FullGeometryHypothesis, np.ndarray]
+    | list[tuple[FullGeometryHypothesis, np.ndarray]]
+    | None
+):
     seed_receivers = np.asarray(receiver_subset, dtype=int)
     seed = np.asarray(seed_events, dtype=int)
     excluded = next(index for index in range(8) if index not in receiver_subset)
@@ -529,31 +535,72 @@ def _complete_geometry(
     if len(complete_fitting) < 6:
         return None
 
-    expanded = extend_event_offsets(
-        arrivals_m[np.ix_(seed_receivers, seed)],
-        seed_root_offsets_m,
-        arrivals_m[np.ix_(seed_receivers, complete_fitting)],
-    )
+    # Noise-aware tolerances derived from measurement uncertainty (T-004).
+    # Audio-extracted TDOAs carry ~6us RMS error with median sigma ~60us, while
+    # exact TDOAs use sigma 2us. Fixed micron tolerances (20um metric, 10um
+    # receiver, 1e-7 membership) reject all noisy hypotheses. The metric
+    # acceptance is a completion filter (not a quality certificate): noisy
+    # metric branches carry algebraic approximation error well above 3-sigma
+    # (observed 0.06-0.12m), so the noisy regime admits branches within the
+    # deterministic polish basin (0.1m) and leaves final quality to held-out
+    # validation selection, polish, and the acceptance gates.
+    valid_sigma = measurements.sigma_s[measurements.valid]
+    valid_sigma = valid_sigma[np.isfinite(valid_sigma)]
+    median_sigma_s = float(np.median(valid_sigma)) if valid_sigma.size else 2e-6
+    sigma_range_m = median_sigma_s * speed_of_sound
+    if sigma_range_m > 5e-3:
+        acceptance_rms_m = 0.1
+    else:
+        acceptance_rms_m = 2e-5
+    membership_tolerance = min(5e-3, max(1e-7, acceptance_rms_m / 4.0))
+    receiver_inlier_tolerance_m = max(1e-5, acceptance_rms_m)
+
+    try:
+        expanded = extend_event_offsets(
+            arrivals_m[np.ix_(seed_receivers, seed)],
+            seed_root_offsets_m,
+            arrivals_m[np.ix_(seed_receivers, complete_fitting)],
+            membership_tolerance=membership_tolerance,
+        )
+    except ValueError:
+        return None
     successful_events = complete_fitting[expanded.success]
     successful_offsets = expanded.offsets_m[expanded.success]
     successful_ranges = expanded.corrected_ranges_m[:, expanded.success]
     if len(successful_events) < 6:
         return None
 
-    factorization = factor_corrected_ranges(
-        successful_ranges,
-        dimension=3,
-    )
+    try:
+        factorization = factor_corrected_ranges(
+            successful_ranges,
+            dimension=3,
+        )
+    except ValueError:
+        return None
     metric = upgrade_metric_3d_overdetermined(
         factorization,
         successful_ranges,
         start_count=metric_start_count,
-        acceptance_rms_m=2e-5,
+        acceptance_rms_m=acceptance_rms_m,
     )
     accepted = [
         candidate
         for candidate in metric.candidates
         if candidate.corrected_range_rms_m <= metric.diagnostics.acceptance_rms_m
+    ]
+    if not accepted:
+        return None
+    # Root-local relative gate (T-004). The absolute noisy acceptance
+    # (0.1m) admits far branches (0.05m+) alongside the root's best
+    # (0.015m); those distractors merge with / outvote the good branch
+    # downstream. Keep only branches near the root's best so each root
+    # contributes its most self-consistent completion(s); cross-root
+    # selection stays with held-out validation + polish. Exact regime is
+    # unaffected: the 0.02 floor admits everything below 2e-5.
+    root_best = min(candidate.corrected_range_rms_m for candidate in accepted)
+    branch_cap = max(0.02, 2.0 * root_best)
+    accepted = [
+        candidate for candidate in accepted if candidate.corrected_range_rms_m <= branch_cap
     ]
     if not accepted:
         return None
@@ -575,7 +622,9 @@ def _complete_geometry(
             excluded_ranges,
             robust=True,
         )
-        if localized_receiver.linear_rank < 3 or localized_receiver.inlier_rms_m > 1e-5:
+        if localized_receiver.linear_rank < 3 or (
+            localized_receiver.inlier_rms_m > receiver_inlier_tolerance_m
+        ):
             continue
 
         microphones = np.empty((8, 3), dtype=float)
@@ -626,7 +675,18 @@ def _complete_geometry(
                 1.0,
                 float(np.max(np.abs(arrivals_m[receiver_index, event]))),
             )
-            if source.linear_rank < 4 or abs(source.norm_residual_m2) > 1e-3 * range_scale**2:
+            source_residual_tolerance_m2 = max(
+                1e-3 * range_scale**2,
+                4.0 * range_scale * acceptance_rms_m,
+            )
+            # Noisy regime skips the norm-residual magnitude gate (keeps rank).
+            # Observed on audio gates: it rejects truth-proximal completions
+            # (2.1 vs 0.84 allowed) while accepting wrong-basin ones, so it
+            # cannot discriminate; held-out validation and polish decide.
+            if source.linear_rank < 4 or (
+                acceptance_rms_m <= 2e-5
+                and abs(source.norm_residual_m2) > source_residual_tolerance_m2
+            ):
                 unresolved = True
                 continue
             source_positions[event] = source.source_position_m
@@ -745,6 +805,13 @@ def _complete_geometry(
 
     if not completed_hypotheses:
         return None
+    if sigma_range_m > 5e-3:
+        # Noisy regime returns every surviving branch (T-004). Branches of
+        # one root can be metric-near yet geometrically far; the old
+        # best-Huber min() killed truth-proximal branches inside their own
+        # root. Polish-then-select below decides among them. Exact regime
+        # keeps the single best (bit-identical).
+        return completed_hypotheses
     return min(
         completed_hypotheses,
         key=lambda item: (
@@ -753,6 +820,741 @@ def _complete_geometry(
             item[0].metric_rms_m,
         ),
     )
+
+
+def _low_rank_initial_geometries(
+    arrivals_m: np.ndarray,
+    primitive_valid: np.ndarray,
+    *,
+    position_bound_m: float,
+    event_subset: tuple[int, ...] | None = None,
+    multipliers: tuple[float, ...] = (0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0),
+) -> list[tuple[np.ndarray, np.ndarray, np.ndarray]]:
+    """Geometry-aware starts from rank-three TDOA structure (noisy-tolerant).
+
+    Adapted from the pre-rewrite MAP initializer: optimize the unknown
+    reference ranges so the doubly centered cross-squared-distance matrix over
+    the given (default: all complete) events is approximately rank three
+    (L-BFGS-B with analytic gradient), factorize, then resolve the affine
+    ambiguity by robustly fitting cross distances (soft_l1). Returns one start
+    per deterministic multiplier: the lowest rank objective overfits
+    (sub-truth tail energy with large range error), so callers must try all
+    starts and select by held-out validation rather than by rank energy.
+    """
+    arrivals = np.asarray(arrivals_m, dtype=float)
+    if arrivals.ndim != 2 or arrivals.shape[0] != 8:
+        return []
+    if event_subset is None:
+        complete = np.asarray(
+            [event for event in range(arrivals.shape[1]) if np.all(primitive_valid[:, event])],
+            dtype=int,
+        )
+    else:
+        complete = np.asarray(
+            [
+                event
+                for event in event_subset
+                if 0 <= int(event) < arrivals.shape[1]
+                and bool(np.all(primitive_valid[:, int(event)]))
+            ],
+            dtype=int,
+        )
+    if len(complete) < 6:
+        return []
+    observed = arrivals[:, complete]
+    frame_count = len(complete)
+    microphone_count = arrivals.shape[0]
+    center_m = (
+        np.eye(microphone_count) - np.ones((microphone_count, microphone_count)) / microphone_count
+    )
+    center_t = np.eye(frame_count) - np.ones((frame_count, frame_count)) / frame_count
+    eps = 1e-9
+    lower = np.maximum(0.02, -np.min(observed, axis=0) + 0.02)
+    upper = np.maximum(lower + 0.5, 2.0 * float(max(position_bound_m, 0.25)))
+    aperture = max(0.25, float(np.percentile(np.abs(observed), 90)))
+
+    def rank_objective_and_gradient(reference_ranges: np.ndarray) -> tuple[float, np.ndarray]:
+        ranges = observed + reference_ranges[None, :]
+        squared = ranges * ranges
+        centered = -0.5 * (center_m @ squared @ center_t)
+        u, singular, vt = np.linalg.svd(centered, full_matrices=False)
+        rank = min(3, len(singular))
+        rank3 = (u[:, :rank] * singular[:rank]) @ vt[:rank]
+        tail = centered - rank3
+        tail_energy = float(np.sum(tail * tail))
+        total_energy = float(np.sum(centered * centered)) + eps
+        value = tail_energy / total_energy
+        grad_squared_tail = -(center_m @ tail @ center_t)
+        grad_squared_total = -(center_m @ centered @ center_t)
+        grad_tail = 2.0 * np.sum(grad_squared_tail * ranges, axis=0)
+        grad_total = 2.0 * np.sum(grad_squared_total * ranges, axis=0)
+        gradient = (grad_tail * total_energy - tail_energy * grad_total) / (total_energy**2)
+        return value, gradient
+
+    fits = []
+    for multiplier in multipliers:
+        initial = np.clip(lower + multiplier * aperture, lower, upper)
+        fit = minimize(
+            rank_objective_and_gradient,
+            initial,
+            method="L-BFGS-B",
+            jac=True,
+            bounds=list(zip(lower, upper, strict=True)),
+            options={"maxiter": 200, "ftol": 1e-13, "gtol": 1e-9},
+        )
+        fits.append(fit)
+
+    starts: list[tuple[np.ndarray, np.ndarray, np.ndarray]] = []
+    affine_initial = np.concatenate([np.eye(3).reshape(-1), np.zeros(3)])
+    for fit in fits:
+        reference_ranges = np.asarray(fit.x, dtype=float)
+        if not np.all(np.isfinite(reference_ranges)):
+            continue
+        ranges = observed + reference_ranges[None, :]
+        squared = ranges * ranges
+        centered = -0.5 * (center_m @ squared @ center_t)
+        u, singular, vt = np.linalg.svd(centered, full_matrices=False)
+        root = np.sqrt(np.maximum(singular[:3], 0.0))
+        left = u[:, :3] * root[None, :]
+        right = vt[:3].T * root[None, :]
+
+        def affine_unpack(
+            parameters: np.ndarray,
+            left: np.ndarray = left,
+            right: np.ndarray = right,
+        ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+            transform = parameters[:9].reshape(3, 3)
+            try:
+                inverse_transpose = np.linalg.inv(transform).T
+            except np.linalg.LinAlgError:
+                inverse_transpose = np.linalg.pinv(transform).T
+            return left @ transform, right @ inverse_transpose, parameters[9:12]
+
+        def affine_residual(
+            parameters: np.ndarray,
+            squared: np.ndarray = squared,
+        ) -> np.ndarray:
+            microphones, sources, offset = affine_unpack(parameters)
+            predicted = np.sum(
+                (microphones[:, None, :] - sources[None, :, :] + offset) ** 2,
+                axis=2,
+            )
+            scale = 1.0 + np.sqrt(np.maximum(squared, 0.0))
+            data = ((predicted - squared) / scale).reshape(-1)
+            regularizer = 1e-4 * (parameters[:9].reshape(3, 3) - np.eye(3)).reshape(-1)
+            return np.concatenate([data, regularizer])
+
+        try:
+            affine_fit = least_squares(
+                affine_residual,
+                affine_initial,
+                loss="soft_l1",
+                f_scale=0.05,
+                max_nfev=800,
+            )
+        except ValueError:
+            continue
+        if not np.all(np.isfinite(affine_fit.x)):
+            continue
+        microphones, sources, offset = affine_unpack(affine_fit.x)
+        starts.append(
+            (
+                np.asarray(microphones + offset, dtype=float),
+                np.asarray(sources, dtype=float),
+                np.asarray(complete, dtype=int),
+            )
+        )
+    return starts
+
+
+def _bundle_adjustment_fallback_8mic(
+    measurements: EventTDOAMeasurements,
+    *,
+    arrivals_m: np.ndarray,
+    primitive_valid: np.ndarray,
+    speed_of_sound: float,
+    fitting_events: tuple[int, ...],
+    validation_events: tuple[int, ...],
+    seed_roots: tuple[tuple[tuple[int, ...], tuple[int, ...], np.ndarray], ...] = (),
+    random_starts: int = 8,
+) -> FullGeometryHypothesis | None:
+    """Robust TDOA bundle adjustment for noisy data the exact minimal path rejects.
+
+    The 7r/6s minimal solver requires exact rank consistency (residual 1e-7), but
+    audio-extracted TDOAs carry ~6us RMS error whose true-offset minor residuals
+    are O(1). When no minimal hypothesis survives, build a broad pool of starts
+    (low-rank rank-structure solutions, generous metric branches from the failed
+    minimal roots, deterministic randoms), pre-rank them with cheap held-out
+    validation, bundle-adjust the winners, and return the best fully scored
+    hypothesis. Returns None when validation does not support any solution.
+    """
+    event_count = len(measurements.event_ids)
+    fitting = np.asarray(fitting_events, dtype=int)
+    if len(fitting) < 6 or len(validation_events) == 0:
+        return None
+    valid = measurements.valid
+    sigma = measurements.sigma_s
+    if not np.all(valid[fitting]):
+        # Fallback needs a complete fitting block; sparse data stays minimal-only.
+        return None
+    finite_sigma = sigma[valid]
+    finite_sigma = finite_sigma[np.isfinite(finite_sigma)]
+    median_sigma_s = float(np.median(finite_sigma)) if finite_sigma.size else 2e-6
+    if median_sigma_s <= 0.0 or not np.isfinite(median_sigma_s):
+        return None
+
+    arrivals_scale_m = float(np.max(np.abs(measurements.tdoa_s[valid])) * speed_of_sound)
+    scale_m = max(
+        1.0,
+        arrivals_scale_m,
+        float(np.median(np.abs(measurements.tdoa_s[valid])) * speed_of_sound * 4.0),
+    )
+
+    columns = np.arange(measurements.tdoa_s.shape[1], dtype=int)
+
+    def _pin_gauge(microphones: np.ndarray, sources: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Translate/rotate geometry into the optimizer gauge (proper rotation).
+
+        Pins mic0 at the origin, mic1 on the x axis, and mic2 in the z=0 plane
+        with non-negative y. Tests align with reflection allowed, so fixing one
+        chirality half-space is safe and keeps starts deterministic.
+        """
+        mics = np.asarray(microphones, dtype=float).copy()
+        src = np.asarray(sources, dtype=float).copy()
+        mics -= mics[0]
+        src -= microphones[0]
+        axis1 = mics[1] / max(float(np.linalg.norm(mics[1])), 1e-12)
+        target = np.array([1.0, 0.0, 0.0])
+        cross = np.cross(axis1, target)
+        cosine = float(np.dot(axis1, target))
+        if float(np.linalg.norm(cross)) <= 1e-12:
+            if cosine > 0:
+                rotation = np.eye(3)
+            else:
+                # 180-degree turn about z maps -x to +x with det +1.
+                rotation = np.diag([-1.0, -1.0, 1.0])
+        else:
+            skew = np.array(
+                [
+                    [0.0, -cross[2], cross[1]],
+                    [cross[2], 0.0, -cross[0]],
+                    [-cross[1], cross[0], 0.0],
+                ]
+            )
+            rotation = np.eye(3) + skew + skew @ skew / (1.0 + cosine)
+        mics = mics @ rotation.T
+        src = src @ rotation.T
+        angle = float(np.arctan2(mics[2, 2], mics[2, 1]))
+        cosine_a, sine_a = float(np.cos(angle)), float(np.sin(angle))
+        roll = np.array(
+            [
+                [1.0, 0.0, 0.0],
+                [0.0, cosine_a, sine_a],
+                [0.0, -sine_a, cosine_a],
+            ]
+        )
+        mics = mics @ roll.T
+        src = src @ roll.T
+        mics[0] = 0.0
+        mics[1, 1:] = 0.0
+        mics[2, 2] = 0.0
+        return mics, src
+
+    def _linear_sources_for(microphones: np.ndarray, events: np.ndarray) -> np.ndarray | None:
+        sources = np.empty((len(events), 3), dtype=float)
+        for row, event in enumerate(events):
+            relative_m = np.zeros(8, dtype=float)
+            relative_m[1:] = measurements.tdoa_s[int(event)] * speed_of_sound
+            try:
+                candidate = localize_source_from_tdoa(microphones, relative_m)
+            except ValueError:
+                return None
+            if candidate.linear_rank < 4:
+                return None
+            sources[row] = candidate.source_position_m
+        return sources
+
+    initializations: list[tuple[np.ndarray, np.ndarray]] = []
+    for low_rank_mics, _, _ in _low_rank_initial_geometries(
+        arrivals_m,
+        primitive_valid,
+        position_bound_m=scale_m,
+    ):
+        subset_sources = _linear_sources_for(low_rank_mics, fitting)
+        if subset_sources is None:
+            continue
+        pinned_mics, pinned_sources = _pin_gauge(low_rank_mics, subset_sources)
+        initializations.append((pinned_mics, pinned_sources))
+
+    # RANSAC-style deterministic event subsets: the luckiest clean subset lands
+    # much closer to truth than full-data algebraic estimates.
+    subset_events: list[tuple[int, ...]] = []
+    for width in (8, 10, 12, 14):
+        for start in range(0, event_count - width + 1):
+            subset_events.append(tuple(range(start, start + width)))
+    for stride in (2, 3):
+        for offset in range(stride):
+            chunk = tuple(index for index in range(event_count) if index % stride == offset)
+            if len(chunk) >= 8:
+                subset_events.append(chunk)
+    for subset in subset_events:
+        for subset_mics, _, _ in _low_rank_initial_geometries(
+            arrivals_m,
+            primitive_valid,
+            position_bound_m=scale_m,
+            event_subset=subset,
+            multipliers=(0.5, 1.5),
+        ):
+            subset_sources = _linear_sources_for(subset_mics, fitting)
+            if subset_sources is None:
+                continue
+            pinned_mics, pinned_sources = _pin_gauge(subset_mics, subset_sources)
+            initializations.append((pinned_mics, pinned_sources))
+            if len(initializations) >= 40:
+                break
+        if len(initializations) >= 40:
+            break
+
+    for receiver_subset, seed_events, seed_offsets in seed_roots:
+        seed_receivers = np.asarray(receiver_subset, dtype=int)
+        seed_index = np.asarray(seed_events, dtype=int)
+        complete_fitting = np.asarray(
+            [event for event in fitting_events if np.all(primitive_valid[seed_receivers, event])],
+            dtype=int,
+        )
+        if len(complete_fitting) < 6:
+            continue
+        try:
+            expanded = extend_event_offsets(
+                arrivals_m[np.ix_(seed_receivers, seed_index)],
+                np.asarray(seed_offsets, dtype=float),
+                arrivals_m[np.ix_(seed_receivers, complete_fitting)],
+                membership_tolerance=5e-3,
+            )
+        except ValueError:
+            continue
+        successful = complete_fitting[expanded.success]
+        if len(successful) < 6:
+            continue
+        successful_ranges = expanded.corrected_ranges_m[:, expanded.success]
+        try:
+            factorization = factor_corrected_ranges(successful_ranges, dimension=3)
+        except ValueError:
+            continue
+        metric = upgrade_metric_3d_overdetermined(
+            factorization,
+            successful_ranges,
+            start_count=12,
+            acceptance_rms_m=0.5,
+        )
+        excluded = next(index for index in range(8) if index not in receiver_subset)
+        for candidate in metric.candidates:
+            if candidate.corrected_range_rms_m > 0.5:
+                continue
+            microphones = np.empty((8, 3), dtype=float)
+            for local_index, microphone_id in enumerate(receiver_subset):
+                microphones[microphone_id] = candidate.microphone_positions_m[local_index]
+            excluded_mask = np.asarray(
+                [primitive_valid[excluded, event] for event in successful],
+                dtype=bool,
+            )
+            if int(np.sum(excluded_mask)) < 4:
+                continue
+            excluded_ranges = (
+                arrivals_m[excluded, successful[excluded_mask]]
+                - expanded.offsets_m[expanded.success][excluded_mask]
+            )
+            try:
+                localized_receiver = localize_receiver_from_ranges(
+                    candidate.source_positions_m[excluded_mask],
+                    excluded_ranges,
+                    robust=True,
+                )
+            except ValueError:
+                continue
+            if localized_receiver.linear_rank < 3 or localized_receiver.inlier_rms_m > 0.1:
+                continue
+            microphones[excluded] = localized_receiver.receiver_position_m
+            candidate_sources = _linear_sources_for(microphones, fitting)
+            if candidate_sources is None:
+                continue
+            pinned_mics, pinned_sources = _pin_gauge(microphones, candidate_sources)
+            initializations.append((pinned_mics, pinned_sources))
+            if len(initializations) >= 16:
+                break
+        if len(initializations) >= 16:
+            break
+
+    def predict(microphones: np.ndarray, sources: np.ndarray) -> np.ndarray:
+        ranges = np.linalg.norm(
+            microphones[:, None, :] - sources[None, :, :],
+            axis=2,
+        )
+        return ((ranges[1:] - ranges[[0]]) / speed_of_sound).T
+
+    def unpack(values: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        microphones = np.zeros((8, 3), dtype=float)
+        microphones[1, 0] = values[0]
+        microphones[2, 0] = values[1]
+        microphones[2, 1] = values[2]
+        microphones[3:] = values[3:18].reshape(5, 3)
+        sources = values[18:].reshape(len(fitting), 3)
+        return microphones, sources
+
+    def pack(microphones: np.ndarray, sources: np.ndarray) -> np.ndarray:
+        return np.concatenate(
+            [
+                np.array(
+                    [
+                        microphones[1, 0],
+                        microphones[2, 0],
+                        microphones[2, 1],
+                    ]
+                ),
+                microphones[3:].reshape(-1),
+                sources.reshape(-1),
+            ]
+        )
+
+    def fitting_residuals(values: np.ndarray) -> np.ndarray:
+        microphones, sources = unpack(values)
+        predicted = predict(microphones, sources)
+        residual = (predicted - measurements.tdoa_s[fitting][:, columns]) / sigma[fitting][
+            :, columns
+        ]
+        return residual.reshape(-1)
+
+    rng = np.random.default_rng(20260919)
+    for _ in range(max(0, random_starts)):
+        microphones = np.zeros((8, 3), dtype=float)
+        microphones[1:, 0] = rng.uniform(-scale_m, scale_m, size=7)
+        microphones[1:, 1] = rng.uniform(-scale_m, scale_m, size=7)
+        microphones[1:, 2] = rng.uniform(0.0, scale_m, size=7)
+        microphones[0] = 0.0
+        microphones[1, 1:] = 0.0
+        microphones[2, 2] = 0.0
+        random_sources = _linear_sources_for(microphones, fitting)
+        if random_sources is None:
+            random_sources = np.column_stack(
+                [
+                    rng.uniform(-scale_m, scale_m, size=len(fitting)),
+                    rng.uniform(-scale_m, scale_m, size=len(fitting)),
+                    rng.uniform(0.0, scale_m, size=len(fitting)),
+                ]
+            )
+        initializations.append((microphones, random_sources))
+    if not initializations:
+        return None
+    # Pre-rank starts with cheap event-level validation (strong discriminator)
+    # so expensive bundle adjustment focuses on the most promising basins.
+    ranked: list[tuple[float, np.ndarray, np.ndarray]] = []
+    for microphones, sources in initializations:
+        score = _event_validation_rms(
+            microphones,
+            measurements,
+            validation_events,
+            speed_of_sound,
+        )
+        if not np.isfinite(score):
+            continue
+        ranked.append(
+            (
+                score,
+                np.asarray(microphones, dtype=float),
+                np.asarray(sources, dtype=float),
+            )
+        )
+    if not ranked:
+        return None
+    ranked.sort(key=lambda item: item[0])
+    best_key: tuple[float, float] | None = None
+    best_values: np.ndarray | None = None
+    for _, microphones, sources in ranked[:6]:
+        initial = pack(microphones, sources)
+        try:
+            fit = least_squares(
+                fitting_residuals,
+                initial,
+                loss="huber",
+                f_scale=3.0,
+                max_nfev=2000,
+                xtol=1e-10,
+                ftol=1e-10,
+                gtol=1e-12,
+                x_scale="jac",
+            )
+        except ValueError:
+            continue
+        if not np.all(np.isfinite(fit.x)):
+            continue
+        candidate_microphones, _ = unpack(np.asarray(fit.x, dtype=float))
+        score = _event_validation_rms(
+            candidate_microphones,
+            measurements,
+            validation_events,
+            speed_of_sound,
+        )
+        if not np.isfinite(score):
+            continue
+        key = (score, float(fit.cost))
+        if best_key is not None and key >= best_key:
+            continue
+        best_key = key
+        best_values = np.asarray(fit.x, dtype=float)
+    if best_values is None:
+        return None
+    microphones, fitting_sources = unpack(best_values)
+
+    source_positions = np.full((event_count, 3), np.nan, dtype=float)
+    source_positions[fitting] = fitting_sources
+
+    generation_mask = np.zeros((8, event_count), dtype=bool)
+    completion_mask = np.zeros((8, event_count), dtype=bool)
+    validation_mask = np.zeros((8, event_count), dtype=bool)
+    generation_mask[1:, fitting] = True
+
+    validation_residuals: list[float] = []
+    validation_sigmas: list[float] = []
+    validation_mask_values: list[bool] = []
+    whitened_validation: list[float] = []
+    validation_set = set(validation_events)
+    for event in range(event_count):
+        if np.all(np.isfinite(source_positions[event])):
+            continue
+        localization_receivers = _localization_receivers_for_event(
+            primitive_valid,
+            event,
+            receiver_count=8,
+        )
+        if localization_receivers is None:
+            continue
+        receiver_index = np.asarray(localization_receivers, dtype=int)
+        relative_m = np.zeros(len(receiver_index), dtype=float)
+        # arrivals relative to reference receiver 0 in meters
+        full_relative = np.zeros(8, dtype=float)
+        full_relative[1:] = measurements.tdoa_s[event] * speed_of_sound
+        relative_m = full_relative[receiver_index]
+        try:
+            source = localize_source_from_tdoa(
+                microphones[receiver_index],
+                relative_m,
+            )
+        except ValueError:
+            continue
+        if source.linear_rank < 4:
+            continue
+        source_positions[event] = source.source_position_m
+        for receiver in localization_receivers:
+            if receiver != 0:
+                completion_mask[receiver, event] = True
+        if event not in validation_set:
+            continue
+        predicted = _tdoa_predictions(
+            microphones,
+            source.source_position_m[None, :],
+            speed_of_sound,
+        )[0]
+        event_residuals: list[float] = []
+        heldout_columns: list[int] = []
+        for receiver in range(1, 8):
+            if receiver in localization_receivers:
+                continue
+            column = receiver - 1
+            if not valid[event, column]:
+                continue
+            validation_mask[receiver, event] = True
+            residual_value = predicted[column] - measurements.tdoa_s[event, column]
+            validation_residuals.append(residual_value)
+            validation_sigmas.append(sigma[event, column])
+            validation_mask_values.append(True)
+            event_residuals.append(residual_value)
+            heldout_columns.append(column)
+        if measurements.covariance_s2 is not None and heldout_columns:
+            fitted_columns = np.asarray(
+                [receiver - 1 for receiver in localization_receivers if receiver != 0],
+                dtype=int,
+            )
+            covariance = conditional_covariance(
+                measurements.covariance_s2[event],
+                np.asarray(heldout_columns, dtype=int),
+                fitted_columns,
+            )
+            whitened_validation.extend(
+                float(value)
+                for value in whiten_residual_block(
+                    np.asarray(event_residuals, dtype=float),
+                    covariance,
+                )
+            )
+
+    if not validation_residuals:
+        return None
+    if not np.all(np.isfinite(source_positions[np.asarray(validation_events, dtype=int)])):
+        return None
+    validation_summary = summarize_independent_residuals(
+        np.asarray(validation_residuals, dtype=float),
+        np.asarray(validation_sigmas, dtype=float),
+        np.asarray(validation_mask_values, dtype=bool),
+    )
+    if whitened_validation:
+        whitened = np.asarray(whitened_validation, dtype=float)
+        validation_summary = RobustResidualSummary(
+            independent_coordinate_count=int(len(whitened)),
+            rms_s=validation_summary.rms_s,
+            median_abs_s=validation_summary.median_abs_s,
+            max_abs_s=validation_summary.max_abs_s,
+            normalized_huber_score=float(np.mean(huber_loss(whitened))),
+            inlier_fraction=float(np.mean(np.abs(whitened) <= 3.0)),
+        )
+    if validation_summary.rms_s is not None and validation_summary.rms_s > 60e-6:
+        return None
+    predictions = _tdoa_predictions(microphones, source_positions, speed_of_sound)
+    finite = valid & np.isfinite(predictions)
+    if not np.any(finite):
+        return None
+    all_residuals = predictions[finite] - measurements.tdoa_s[finite]
+    full_rms = float(np.sqrt(np.mean(all_residuals * all_residuals)))
+    if full_rms > 60e-6:
+        return None
+    microphones_copy = np.array(microphones, copy=True)
+    sources_copy = np.array(source_positions, copy=True)
+    microphones_copy.setflags(write=False)
+    sources_copy.setflags(write=False)
+    return FullGeometryHypothesis(
+        subset_id="bundle_adjustment_fallback",
+        root_id=0,
+        microphone_positions_m=microphones_copy,
+        source_positions_m=sources_copy,
+        split=MeasurementSplit(
+            generation_mask=generation_mask,
+            completion_mask=completion_mask,
+            validation_mask=validation_mask,
+        ),
+        validation=validation_summary,
+        full_tdoa_rms_s=full_rms,
+        metric_rms_m=full_rms * speed_of_sound,
+        metric_condition_number=None,
+        affine_factor_singular_ratio=None,
+        model="receiver3d_source3d",
+        seed_microphone_ids=tuple(int(value) for value in measurements.microphone_ids[:7]),
+        seed_event_ids=tuple(int(measurements.event_ids[value]) for value in fitting[:6]),
+        metric_branch_id=0,
+        arrival_gauge_shifts_m=np.zeros(event_count, dtype=float),
+        offset_scope_event_ids=tuple(int(measurements.event_ids[value]) for value in fitting),
+        microphone_completion_status=np.all(np.isfinite(microphones_copy), axis=1),
+        source_completion_status=np.all(np.isfinite(sources_copy), axis=1),
+        generating_equation_rms=full_rms * speed_of_sound,
+    )
+
+
+def _linear_sources_at_microphones(
+    microphones: np.ndarray,
+    measurements: EventTDOAMeasurements,
+    arrivals_m: np.ndarray,
+    primitive_valid: np.ndarray,
+    speed_of_sound: float,
+) -> np.ndarray | None:
+    """Refit every event's source linearly at fixed microphones.
+
+    Returns array or None when any event is unfittable (caller keeps the
+    representative sources then). Used to de-poison joint polish starts.
+    """
+    microphones = np.asarray(microphones, dtype=float)
+    event_count = len(measurements.event_ids)
+    sources = np.full((event_count, 3), np.nan, dtype=float)
+    for event in range(event_count):
+        receivers = [r for r in range(arrivals_m.shape[0]) if primitive_valid[r, event]]
+        if len(receivers) < 5:
+            return None
+        reference = receivers[0]
+        relative = arrivals_m[receivers, event] - arrivals_m[reference, event]
+        try:
+            source = localize_source_from_tdoa(
+                microphones[receivers],
+                relative,
+            )
+        except ValueError:
+            return None
+        if source.linear_rank < 4:
+            return None
+        sources[event] = source.source_position_m
+    return sources
+
+
+def _dedupe_classes(classes: list[HypothesisClass]) -> list[HypothesisClass]:
+    """Order-preserving identity dedupe (HypothesisClass holds ndarrays)."""
+    seen: list[HypothesisClass] = []
+    for candidate in classes:
+        if all(candidate is not existing for existing in seen):
+            seen.append(candidate)
+    return seen
+
+
+def _event_validation_rms(
+    microphones: np.ndarray,
+    measurements: EventTDOAMeasurements,
+    validation_events: tuple[int, ...],
+    speed_of_sound: float,
+    *,
+    receiver_subset: tuple[int, ...] | None = None,
+) -> float:
+    """Strong held-out score: localize each validation event from all receivers.
+
+    Unlike the stratified receiver-holdout score (which absorbs microphone error
+    by fitting validation sources from five receivers and checks two), fitting
+    all valid pairs with three source unknowns leaves every direction of
+    microphone error exposed. Truth scores near measurement noise while
+    0.5m-off geometries score hundreds of microseconds worse, so this
+    discriminates where Huber ties. Returns inf when scoring is impossible.
+
+    When receiver_subset is given, only those receivers participate: this
+    scores seed geometry without letting a fragile extra-microphone completion
+    poison selection (completion is repaired by polish after selection).
+    """
+    microphones = np.asarray(microphones, dtype=float)
+    if microphones.shape[0] < 5 or microphones.shape[1] != 3:
+        return float("inf")
+    if not np.all(np.isfinite(microphones)):
+        return float("inf")
+    if receiver_subset is not None:
+        subset = sorted({int(r) for r in receiver_subset})
+        if 0 not in subset or any(r < 0 or r >= len(microphones) for r in subset):
+            return float("inf")
+    else:
+        subset = list(range(len(microphones)))
+    valid = measurements.valid
+    squared_sum = 0.0
+    count = 0
+    for event in validation_events:
+        event = int(event)
+        # Column c corresponds to pair (0, c+1); receiver 0 needs arrival 0.
+        receivers = [r for r in subset if r == 0 or valid[event, r - 1]]
+        if len(receivers) < 5 or receivers[0] != 0:
+            return float("inf")
+        receiver_index = np.asarray(receivers, dtype=int)
+        full_relative = np.zeros(len(microphones), dtype=float)
+        full_relative[1:] = measurements.tdoa_s[event] * speed_of_sound
+        try:
+            source = localize_source_from_tdoa(
+                microphones[receiver_index],
+                full_relative[receiver_index],
+            )
+        except ValueError:
+            return float("inf")
+        if source.linear_rank < 4:
+            return float("inf")
+        ranges = np.linalg.norm(microphones[receiver_index] - source.source_position_m, axis=1)
+        predicted = (ranges[1:] - ranges[0]) / speed_of_sound
+        columns = np.asarray([r - 1 for r in receivers if r != 0], dtype=int)
+        residual = predicted - measurements.tdoa_s[event][columns]
+        mask = valid[event][columns]
+        if not np.any(mask):
+            return float("inf")
+        squared_sum += float(np.sum(residual[mask] * residual[mask]))
+        count += int(np.sum(mask))
+    if count == 0:
+        return float("inf")
+    return float(np.sqrt(squared_sum / count))
 
 
 def calibrate_tdoa_8mic(
@@ -774,17 +1576,45 @@ def calibrate_tdoa_8mic(
         speed_of_sound,
     )
     fitting_events, validation_events = _split_events(len(measurements.event_ids))
-    receiver_subsets = _receiver_subsets(8, budget=receiver_subset_budget)
-    seed_families = _seed_event_families(
-        fitting_events,
-        budget=event_subset_budget,
+    # Noise-aware minimal residual tolerance (T-004, section 6 of the implementation
+    # plan). Exact data keep the 1e-7 verification so the exact gate is
+    # bit-identical; audio-extracted TDOAs (~6us RMS) violate exact rank
+    # consistency with true-offset minor residuals O(1), so the noisy regime
+    # admits approximate roots (tolerance 3.0 covers the observed true-offset
+    # max-abs 1.4 with margin) and leaves selection to held-out validation.
+    valid_sigma = measurements.sigma_s[measurements.valid]
+    valid_sigma = valid_sigma[np.isfinite(valid_sigma)]
+    median_sigma_range_m = (
+        float(np.median(valid_sigma)) * speed_of_sound if valid_sigma.size else 0.0
     )
+    noisy_regime = median_sigma_range_m > 5e-3
+    if noisy_regime:
+        minimal_residual_tolerance = 3.0
+    else:
+        minimal_residual_tolerance = 1e-7
+    # Noisy regime also searches every receiver exclusion and twice the event
+    # families: approximate roots are basin-sensitive, so more supported
+    # subsets mean more chances that one lands near truth. Exact regime keeps
+    # caller budgets bit-identically.
+    if noisy_regime:
+        receiver_subsets = _receiver_subsets(8, budget=8)
+        seed_families = _seed_event_families(
+            fitting_events,
+            budget=max(event_subset_budget, 4),
+        )
+    else:
+        receiver_subsets = _receiver_subsets(8, budget=receiver_subset_budget)
+        seed_families = _seed_event_families(
+            fitting_events,
+            budget=event_subset_budget,
+        )
 
     hypotheses: list[FullGeometryHypothesis] = []
     rejections: list[str] = []
     attempted = 0
     roots_generated = 0
     metric_candidates = 0
+    seed_root_records: list[tuple[tuple[int, ...], tuple[int, ...], np.ndarray]] = []
 
     for receiver_subset in receiver_subsets:
         receiver_index = np.asarray(receiver_subset, dtype=int)
@@ -797,9 +1627,13 @@ def calibrate_tdoa_8mic(
             minimal = solve_offsets_7r6s(
                 arrivals_m[np.ix_(receiver_index, seed_index)],
                 start_count=root_start_count,
+                residual_tolerance=minimal_residual_tolerance,
             )
             roots_generated += len(minimal.roots)
             for root_id, root in enumerate(minimal.roots):
+                seed_root_records.append(
+                    (tuple(receiver_subset), tuple(seed_events), np.asarray(root.offsets_m))
+                )
                 completed = _complete_geometry(
                     arrivals_m=arrivals_m,
                     primitive_valid=primitive_valid,
@@ -818,10 +1652,30 @@ def calibrate_tdoa_8mic(
                 if completed is None:
                     rejections.append("completion_or_metric_failure")
                     continue
+                if isinstance(completed, list):
+                    for hypothesis, _ in completed:
+                        hypotheses.append(hypothesis)
+                        metric_candidates += 1
+                    continue
                 hypothesis, _ = completed
                 hypotheses.append(hypothesis)
                 metric_candidates += 1
 
+    fallback_exhausted = False
+    if not hypotheses:
+        fallback_exhausted = True
+        fallback = _bundle_adjustment_fallback_8mic(
+            measurements,
+            arrivals_m=arrivals_m,
+            primitive_valid=primitive_valid,
+            speed_of_sound=speed_of_sound,
+            fitting_events=fitting_events,
+            validation_events=validation_events,
+            seed_roots=tuple(seed_root_records),
+        )
+        if fallback is not None:
+            hypotheses.append(fallback)
+            metric_candidates += 1
     if not hypotheses:
         return StratifiedCalibrationResult(
             status="insufficient_data" if attempted == 0 else "failed",
@@ -849,6 +1703,291 @@ def calibrate_tdoa_8mic(
         tuple(hypotheses),
         microphone_rms_tolerance_m=class_tolerance_m,
     )
+    if noisy_regime and classes:
+        # Polish-then-select (T-004). Coarse hypotheses can carry good seeds
+        # with bad sources/completions that every pre-polish score misranks;
+        # polishing each candidate class and selecting by post-polish
+        # event-level validation recovers them. Exact regime untouched below.
+        from .refinement import refine_calibration
+
+        id_to_index = {
+            microphone_id: index for index, microphone_id in enumerate(measurements.microphone_ids)
+        }
+        pre_ranked: list[tuple[float, HypothesisClass]] = []
+        for hypothesis_class in classes:
+            seed_ids = hypothesis_class.representative.seed_microphone_ids
+            seed_indices = tuple(
+                id_to_index[microphone_id]
+                for microphone_id in seed_ids
+                if microphone_id in id_to_index
+            )
+            pre_ranked.append(
+                (
+                    _event_validation_rms(
+                        np.asarray(hypothesis_class.representative.microphone_positions_m),
+                        measurements,
+                        validation_events,
+                        speed_of_sound,
+                        receiver_subset=seed_indices if seed_indices else None,
+                    ),
+                    hypothesis_class,
+                )
+            )
+        pre_ranked.sort(
+            key=lambda item: (
+                item[0],
+                item[1].representative.validation.normalized_huber_score,
+            )
+        )
+        polished_options: list[tuple[float, HypothesisClass, StratifiedCalibrationResult]] = []
+        for _, hypothesis_class in pre_ranked[:6]:
+            representative = hypothesis_class.representative
+            # Linear-source refresh (T-004). Completion sources can be
+            # inconsistent enough to drag joint polish out of the basin
+            # (truth-mics + coarse-sources diverge to 1m); refitting each
+            # event's source linearly at the coarse microphones first lets
+            # joint polish converge (0.33m coarse reaches 0.20m; without
+            # refresh the same start diverges past 0.9m).
+            refreshed_sources = _linear_sources_at_microphones(
+                np.asarray(representative.microphone_positions_m),
+                measurements,
+                arrivals_m,
+                primitive_valid,
+                speed_of_sound,
+            )
+            # Polish both the representative sources and the linear refresh
+            # (T-004): refresh rescues poisoned completions but can displace
+            # good ones (linear bias); post-polish validation selects.
+            source_variants = [np.asarray(representative.source_positions_m)]
+            if refreshed_sources is not None:
+                source_variants.append(refreshed_sources)
+            placeholder = StratifiedCalibrationDiagnostics(
+                attempted_subsets=attempted,
+                generated_offset_roots=roots_generated,
+                metric_candidates=metric_candidates,
+                completed_hypotheses=len(hypotheses),
+                geometric_class_count=len(classes),
+                selected_support=hypothesis_class.independent_subset_support,
+                fitting_event_count=len(fitting_events),
+                validation_event_count=len(validation_events),
+                validation_independent_coordinates=(
+                    representative.validation.independent_coordinate_count
+                ),
+                rejection_reasons=tuple(rejections),
+            )
+
+            def polish_variant(candidate_sources: np.ndarray) -> float | None:
+                candidate_result = StratifiedCalibrationResult(
+                    status="solved",
+                    microphone_positions_m=np.asarray(representative.microphone_positions_m),
+                    source_positions_m=candidate_sources,
+                    event_ids=measurements.event_ids,
+                    tdoa_rms_s=representative.full_tdoa_rms_s,
+                    selected_class=hypothesis_class,
+                    classes=classes,
+                    diagnostics=placeholder,
+                )
+                polished, polish_diagnostics = refine_calibration(
+                    candidate_result,
+                    measurements,
+                    speed_of_sound=speed_of_sound,
+                    mode="huber",
+                    max_nfev=500,
+                )
+                if not polish_diagnostics.accepted or not isinstance(
+                    polished, StratifiedCalibrationResult
+                ):
+                    return None
+                if polished.microphone_positions_m is None:
+                    return None
+                post_score = _event_validation_rms(
+                    np.asarray(polished.microphone_positions_m),
+                    measurements,
+                    validation_events,
+                    speed_of_sound,
+                )
+                polished_options.append((post_score, hypothesis_class, polished))
+                return post_score
+
+            # As-is first, then the refreshed variant when available: refresh
+            # rescues poisoned completions but can displace good ones
+            # (linear bias); post-polish validation selects. Both always run
+            # (a strong class's refreshed variant can still win).
+            polish_variant(source_variants[0])
+            if len(source_variants) > 1:
+                polish_variant(source_variants[1])
+        # Conditional bundle-adjustment rescue (T-004). Approximate
+        # stratified roots sometimes miss the polish basin on every branch
+        # (all post-polish event RMS Bad); the low-rank bundle adjustment
+        # starts from data-driven inits independent of minimal roots and
+        # often lands in-basin instead. It runs only when stratified is
+        # weak (validation-selected winners validate near noise, ~3-9us),
+        # so fixtures stratified already solves pay no extra cost. The
+        # rescue candidate joins the same post-polish selection below. The
+        # trigger sits at 6us (winners validate at 3-6us).
+        stratified_best = (
+            min(item[0] for item in polished_options) if polished_options else float("inf")
+        )
+        if stratified_best > 6e-6 and not fallback_exhausted:
+            rescue = _bundle_adjustment_fallback_8mic(
+                measurements,
+                arrivals_m=arrivals_m,
+                primitive_valid=primitive_valid,
+                speed_of_sound=speed_of_sound,
+                fitting_events=fitting_events,
+                validation_events=validation_events,
+                seed_roots=tuple(seed_root_records),
+            )
+            if rescue is not None:
+                hypotheses.append(rescue)
+                metric_candidates += 1
+                rescue_classes = cluster_equivalent_hypotheses(
+                    (rescue,),
+                    microphone_rms_tolerance_m=class_tolerance_m,
+                )
+                rescue_class = rescue_classes[0]
+                rescue_placeholder = StratifiedCalibrationDiagnostics(
+                    attempted_subsets=attempted,
+                    generated_offset_roots=roots_generated,
+                    metric_candidates=metric_candidates,
+                    completed_hypotheses=len(hypotheses),
+                    geometric_class_count=len(classes) + 1,
+                    selected_support=0,
+                    fitting_event_count=len(fitting_events),
+                    validation_event_count=len(validation_events),
+                    validation_independent_coordinates=(
+                        rescue.validation.independent_coordinate_count
+                    ),
+                    rejection_reasons=tuple(rejections),
+                )
+                rescue_result = StratifiedCalibrationResult(
+                    status="solved",
+                    microphone_positions_m=np.asarray(rescue.microphone_positions_m),
+                    source_positions_m=np.asarray(rescue.source_positions_m),
+                    event_ids=measurements.event_ids,
+                    tdoa_rms_s=rescue.full_tdoa_rms_s,
+                    selected_class=rescue_class,
+                    classes=classes,
+                    diagnostics=rescue_placeholder,
+                )
+                rescue_polished, rescue_polish_diagnostics = refine_calibration(
+                    rescue_result,
+                    measurements,
+                    speed_of_sound=speed_of_sound,
+                    mode="huber",
+                    max_nfev=500,
+                )
+                if (
+                    rescue_polish_diagnostics.accepted
+                    and isinstance(rescue_polished, StratifiedCalibrationResult)
+                    and rescue_polished.microphone_positions_m is not None
+                ):
+                    rescue_post = _event_validation_rms(
+                        np.asarray(rescue_polished.microphone_positions_m),
+                        measurements,
+                        validation_events,
+                        speed_of_sound,
+                    )
+                    polished_options.append((rescue_post, rescue_class, rescue_polished))
+        if polished_options:
+            polished_options.sort(
+                key=lambda item: (
+                    item[0],
+                    item[1].representative.validation.normalized_huber_score,
+                )
+            )
+            _, selected_polished_class, selected_polished = polished_options[0]
+            polished_status: CalibrationStatus = "solved"
+            # Ambiguity compares distinct geometric classes: two polish
+            # variants of the same class validating within tolerance is
+            # agreement, not ambiguity.
+            selected_polished_mics = np.asarray(selected_polished.microphone_positions_m)
+            for runner_score, runner_class, runner_polished in polished_options[1:]:
+                if runner_class is selected_polished_class:
+                    continue
+                best_score = polished_options[0][0]
+                if not (
+                    runner_class.independent_subset_support
+                    >= selected_polished_class.independent_subset_support
+                    and abs(runner_score - best_score)
+                    <= ambiguity_score_tolerance * max(abs(best_score), 1e-9)
+                ):
+                    break
+                # Tied but geometrically coincident runners are duplicate
+                # basin splits, not genuine ambiguity: only distinct
+                # geometries (aligned mic RMS beyond 5cm, a third of the
+                # acceptance gate) keep the ambiguous verdict. Compare the
+                # polished geometries (the actual selection candidates),
+                # not the coarse representatives.
+                runner_mics = np.asarray(runner_polished.microphone_positions_m)
+                try:
+                    aligned_runner, _, _ = rigid_align(runner_mics, selected_polished_mics)
+                    runner_distance_m = rms_position_error(aligned_runner, selected_polished_mics)
+                except ValueError:
+                    runner_distance_m = float("inf")
+                if runner_distance_m > 0.05:
+                    polished_status = "ambiguous"
+                break
+            return StratifiedCalibrationResult(
+                status=polished_status,
+                microphone_positions_m=np.asarray(selected_polished.microphone_positions_m),
+                source_positions_m=np.asarray(selected_polished.source_positions_m),
+                event_ids=measurements.event_ids,
+                tdoa_rms_s=selected_polished.tdoa_rms_s,
+                selected_class=selected_polished_class,
+                classes=tuple(
+                    _dedupe_classes(
+                        [item[1] for item in polished_options]
+                        + [c for c in classes if all(c is not item[1] for item in polished_options)]
+                    )
+                ),
+                diagnostics=StratifiedCalibrationDiagnostics(
+                    attempted_subsets=attempted,
+                    generated_offset_roots=roots_generated,
+                    metric_candidates=metric_candidates,
+                    completed_hypotheses=len(hypotheses),
+                    geometric_class_count=len(classes),
+                    selected_support=selected_polished_class.independent_subset_support,
+                    fitting_event_count=len(fitting_events),
+                    validation_event_count=len(validation_events),
+                    validation_independent_coordinates=(
+                        selected_polished_class.representative.validation.independent_coordinate_count
+                    ),
+                    rejection_reasons=tuple(rejections),
+                ),
+            )
+    if noisy_regime and len(classes) > 1:
+        # Receiver-holdout Huber ties (or inverts) on coarse noisy hypotheses;
+        # event-level validation separates truth-proximal classes by 10-100x.
+        # Scoring uses seed receivers only so a fragile extra-microphone
+        # completion cannot poison selection (polish repairs it afterwards).
+        # Exact regime keeps Huber order bit-identically.
+        id_to_index = {
+            microphone_id: index for index, microphone_id in enumerate(measurements.microphone_ids)
+        }
+        scored_classes: list[tuple[float, HypothesisClass]] = []
+        for hypothesis_class in classes:
+            seed_ids = hypothesis_class.representative.seed_microphone_ids
+            seed_indices = tuple(
+                id_to_index[microphone_id]
+                for microphone_id in seed_ids
+                if microphone_id in id_to_index
+            )
+            score = _event_validation_rms(
+                np.asarray(hypothesis_class.representative.microphone_positions_m),
+                measurements,
+                validation_events,
+                speed_of_sound,
+                receiver_subset=seed_indices if seed_indices else None,
+            )
+            scored_classes.append((score, hypothesis_class))
+        scored_classes.sort(
+            key=lambda item: (
+                item[0],
+                item[1].representative.validation.normalized_huber_score,
+            )
+        )
+        classes = tuple(item[1] for item in scored_classes)
     selected = classes[0]
     status: CalibrationStatus = "solved"
     if len(classes) > 1:
@@ -864,7 +2003,7 @@ def calibrate_tdoa_8mic(
     sources = np.array(representative.source_positions_m, copy=True)
     microphones.setflags(write=False)
     sources.setflags(write=False)
-    return StratifiedCalibrationResult(
+    result = StratifiedCalibrationResult(
         status=status,
         microphone_positions_m=microphones,
         source_positions_m=sources,
@@ -887,6 +2026,24 @@ def calibrate_tdoa_8mic(
             rejection_reasons=tuple(rejections),
         ),
     )
+    if noisy_regime and result.status == "solved":
+        # Deterministic Huber polish of the selected noisy geometry (T-004).
+        # The stratified algebraic stages land near-truth candidates (e.g. 15 cm)
+        # whose basin the gauge-reduced robust refinement finishes to cm level.
+        # Deferred import avoids a refinement<->solver module cycle. Rollback
+        # inside refinement keeps the unpolished result when polish stalls.
+        from .refinement import refine_calibration
+
+        polished, polish_diagnostics = refine_calibration(
+            result,
+            measurements,
+            speed_of_sound=speed_of_sound,
+            mode="huber",
+            max_nfev=500,
+        )
+        if polish_diagnostics.accepted and isinstance(polished, StratifiedCalibrationResult):
+            return polished
+    return result
 
 
 def calibrate_planar_tdoa_8mic(

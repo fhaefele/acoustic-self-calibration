@@ -358,10 +358,6 @@ def estimate_event_tdoa_measurements(
     if len(events) < 4:
         raise ValueError("fewer than four events have enough surrounding audio for TDOA estimation")
 
-    envelope = energy_envelope(
-        values,
-        max(1, int(round(envelope_smooth_s * sample_rate))),
-    )
     microphone_count = values.shape[1]
     arrival_lags = np.zeros((len(events), microphone_count), dtype=float)
     arrival_confidence = np.ones(
@@ -375,8 +371,12 @@ def estimate_event_tdoa_measurements(
             continue
         candidates: list[tuple[np.ndarray, np.ndarray]] = []
         for center in events:
+            # Correlate raw waveforms (T-004): envelope correlation limits timing
+            # to ~10us RMS, whose exact rank residuals are O(1) and defeat the
+            # minimal solver. Raw correlation of the broadband pulse reaches
+            # ~4us RMS. Detection still uses the energy envelope.
             correlation = _normalized_correlation_curve(
-                envelope,
+                values,
                 center_sample=int(center),
                 reference_channel=event_channel,
                 target_channel=channel,

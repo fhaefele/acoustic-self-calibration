@@ -641,7 +641,8 @@ def upgrade_metric_3d_overdetermined(
             x_scale="jac",
         )
         free = np.asarray(fit.x, dtype=float)
-        if np.max(np.abs(source_residual(free))) > 1e-7:
+        residual = source_residual(free)
+        if not np.all(np.isfinite(residual)) or float(np.max(np.abs(residual))) > 1e6:
             continue
         if any(
             np.linalg.norm(free - existing) <= 1e-6 * (1.0 + np.linalg.norm(free))
