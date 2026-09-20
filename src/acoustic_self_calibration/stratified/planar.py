@@ -433,6 +433,8 @@ def localize_planar_receiver_from_ranges(
     source_projected_positions_m: np.ndarray,
     source_unsigned_heights_m: np.ndarray,
     ranges_m: np.ndarray,
+    *,
+    range_tolerance_m2: float = 0.0,
 ) -> PlanarReceiverLocalizationResult:
     """Recover one receiver in the canonical plane from unsigned source observables."""
     projected = np.asarray(source_projected_positions_m, dtype=float)
@@ -444,8 +446,10 @@ def localize_planar_receiver_from_ranges(
         raise ValueError("height/range arrays must match source count")
     if len(projected) < 3:
         raise ValueError("at least three sources are required for planar receiver localization")
+    if range_tolerance_m2 < 0.0:
+        raise ValueError("range_tolerance_m2 must be nonnegative")
     planar_squared = ranges * ranges - heights * heights
-    tolerance = 1e-9 * max(1.0, float(np.max(ranges * ranges)))
+    tolerance = 1e-9 * max(1.0, float(np.max(ranges * ranges))) + range_tolerance_m2
     if np.min(planar_squared) < -tolerance:
         raise ValueError("ranges are incompatible with unsigned source heights")
     planar_ranges = np.sqrt(np.maximum(planar_squared, 0.0))

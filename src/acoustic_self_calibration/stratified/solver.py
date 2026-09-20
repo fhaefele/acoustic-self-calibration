@@ -2155,10 +2155,14 @@ def calibrate_planar_tdoa_8mic(
                 rejections.append("insufficient_planar_expansion")
                 continue
 
-            factorization = factor_corrected_ranges(
-                successful_ranges,
-                dimension=2,
-            )
+            try:
+                factorization = factor_corrected_ranges(
+                    successful_ranges,
+                    dimension=2,
+                )
+            except ValueError:
+                rejections.append("planar_factorization_failure")
+                continue
             metric = upgrade_metric_planar(
                 factorization,
                 successful_ranges,
@@ -2184,30 +2188,47 @@ def calibrate_planar_tdoa_8mic(
             if not metric.candidates:
                 rejections.extend(metric.diagnostics.reasons)
                 continue
-            candidate = metric.candidates[0]
+            # Try every metric candidate with local rejection (T-005): under
+            # noise the best-RMS branch is not always the completable one.
+            # Completion gates scale with measurement noise and the caller's
+            # metric acceptance instead of exact-arithmetic constants.
+            planar_sigma = measurements.sigma_s[measurements.valid]
+            planar_sigma = planar_sigma[np.isfinite(planar_sigma)]
+            planar_median_sigma_m = (
+                float(np.median(planar_sigma)) * speed_of_sound if planar_sigma.size else 0.0
+            )
+            candidate = None
             metric_weak = metric.status == "weakly_identified"
-
-            excluded_valid = np.asarray(
-                [primitive_valid[excluded, event] for event in successful_events],
-                dtype=bool,
-            )
-            if int(np.sum(excluded_valid)) < 3:
-                rejections.append("insufficient_planar_receiver_completion")
-                continue
-            excluded_ranges = (
-                arrivals_m[excluded, successful_events[excluded_valid]]
-                - successful_offsets[excluded_valid]
-            )
-            try:
-                localized_receiver = localize_planar_receiver_from_ranges(
-                    candidate.source_projected_positions_m[excluded_valid],
-                    candidate.source_unsigned_heights_m[excluded_valid],
-                    excluded_ranges,
+            for metric_candidate in metric.candidates:
+                excluded_valid = np.asarray(
+                    [primitive_valid[excluded, event] for event in successful_events],
+                    dtype=bool,
                 )
-            except ValueError:
-                rejections.append("planar_receiver_completion_failure")
-                continue
-            if localized_receiver.linear_rank < 2 or localized_receiver.range_rms_m > 1e-2:
+                if int(np.sum(excluded_valid)) < 3:
+                    continue
+                excluded_ranges = (
+                    arrivals_m[excluded, successful_events[excluded_valid]]
+                    - successful_offsets[excluded_valid]
+                )
+                range_tolerance_m2 = (
+                    6.0 * planar_median_sigma_m * float(np.max(np.abs(excluded_ranges)))
+                ) ** 2
+                try:
+                    localized_receiver = localize_planar_receiver_from_ranges(
+                        metric_candidate.source_projected_positions_m[excluded_valid],
+                        metric_candidate.source_unsigned_heights_m[excluded_valid],
+                        excluded_ranges,
+                        range_tolerance_m2=range_tolerance_m2,
+                    )
+                except ValueError:
+                    continue
+                if localized_receiver.linear_rank < 2 or (
+                    localized_receiver.range_rms_m > max(1e-2, metric_acceptance_rms_m)
+                ):
+                    continue
+                candidate = metric_candidate
+                break
+            if candidate is None:
                 rejections.append("planar_receiver_completion_failure")
                 continue
 
@@ -2414,6 +2435,59 @@ def calibrate_planar_tdoa_8mic(
         full_rms,
         metric_weak,
     ) = selected
+    status: CalibrationStatus = "weakly_identified" if metric_weak else "solved"
+    if metric_weak:
+        # Noisy planar polish (T-005). Algebraic completion lands cm-off
+        # under noise while the metric flags the branch weak; gauge-reduced
+        # Huber refinement finishes to mm level. Solved verdict only when
+        # the polished TDOA fit reaches the codebase noisy bar (60us);
+        # validation is intentionally left as selected (model-selection
+        # evidence must not shift under T-007's passing comparisons).
+        from .refinement import _refine_planar
+
+        tentative = PlanarCalibrationResult(
+            status="solved",
+            microphone_positions_m=np.asarray(microphones),
+            source_projected_positions_m=np.asarray(projected),
+            source_unsigned_heights_m=np.asarray(heights),
+            source_height_sign_known=np.zeros(len(heights), dtype=bool),
+            source_representative_positions_m=np.asarray(representative),
+            event_ids=measurements.event_ids,
+            validation=validation,
+            tdoa_rms_s=full_rms,
+            diagnostics=StratifiedCalibrationDiagnostics(
+                attempted_subsets=attempted,
+                generated_offset_roots=generated,
+                metric_candidates=len(hypotheses),
+                completed_hypotheses=len(hypotheses),
+                geometric_class_count=1,
+                selected_support=1,
+                fitting_event_count=len(fitting_events),
+                validation_event_count=len(validation_events),
+                validation_independent_coordinates=validation.independent_coordinate_count,
+                rejection_reasons=tuple(rejections),
+            ),
+        )
+        polished_planar, planar_polish_diagnostics = _refine_planar(
+            tentative,
+            measurements,
+            speed_of_sound=speed_of_sound,
+            mode="huber",
+            max_nfev=500,
+            improvement_tolerance=1e-10,
+        )
+        if (
+            planar_polish_diagnostics.accepted
+            and polished_planar.microphone_positions_m is not None
+            and polished_planar.tdoa_rms_s is not None
+            and polished_planar.tdoa_rms_s <= 60e-6
+        ):
+            microphones = np.asarray(polished_planar.microphone_positions_m)
+            projected = np.asarray(polished_planar.source_projected_positions_m)
+            heights = np.asarray(polished_planar.source_unsigned_heights_m)
+            representative = np.asarray(polished_planar.source_representative_positions_m)
+            full_rms = float(polished_planar.tdoa_rms_s)
+            status = "solved"
     sign_known = np.zeros(len(heights), dtype=bool)
     arrays = [microphones, projected, heights, sign_known, representative]
     frozen: list[np.ndarray] = []
@@ -2422,7 +2496,7 @@ def calibrate_planar_tdoa_8mic(
         copy.setflags(write=False)
         frozen.append(copy)
     return PlanarCalibrationResult(
-        status="weakly_identified" if metric_weak else "solved",
+        status=status,
         microphone_positions_m=frozen[0],
         source_projected_positions_m=frozen[1],
         source_unsigned_heights_m=frozen[2],
