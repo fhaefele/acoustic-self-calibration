@@ -1,14 +1,11 @@
 # JSON format
 
-The project uses one canonical JSON scene schema for reference input, calibration output, and standalone comparison input.
+The project uses one canonical scene schema for reference input and solved calibration
+output. Calibration JSON adds event measurements and stratified diagnostics.
 
-Every valid scene document contains the same top-level `scene` object. Calibration and comparison outputs add extra sections, but their `scene` remains valid input for later `asc calibrate -r ...`, `asc check`, or `asc compare` operations.
+## Canonical scene
 
-The previous pre-`scene` JSON layout is intentionally unsupported.
-
-## Canonical scene schema
-
-A minimal ground-truth/reference file is:
+A minimal reference scene is:
 
 ```json
 {
@@ -24,168 +21,169 @@ A minimal ground-truth/reference file is:
       ]
     },
     "source": {
-      "times_s": [0.0, 0.1, 0.2],
+      "times_s": [0.0, 0.1],
       "positions_m": [
         [2.0, 0.0, 1.0],
-        [1.95, 0.2, 1.02],
-        [1.85, 0.4, 1.05]
+        [1.9, 0.2, 1.0]
       ]
     }
-  },
-  "metadata": {
-    "name": "trial_01"
   }
 }
 ```
 
-Required fields:
+`scene_role` is `ground_truth` or `estimate`. Source times must be strictly
+increasing. Coordinates and times must be finite.
 
-- `schema_version`: currently `1`.
-- `scene_role`: either `"ground_truth"` or `"estimate"`.
-- `scene.microphones.positions_m`: shape `(M, 3)`, at least four microphones.
-- `scene.source.times_s`: strictly increasing seconds.
-- `scene.source.positions_m`: shape `(N, 3)`, same length as `times_s`.
-- all coordinates and times must be finite.
+## Stratified calibration section
 
-`metadata` is optional and must be a JSON object when present.
-
-`scene_role: "ground_truth"` means measured/simulated truth. `scene_role: "estimate"` means the scene came from an estimator. Both roles can be used as references.
-
-## Validation
-
-CLI:
-
-```bash
-asc check scene.json
-```
-
-Python:
-
-```python
-from acoustic_self_calibration import validate_ground_truth_json
-
-scene = validate_ground_truth_json("scene.json")
-```
-
-The validator returns a `GroundTruth` scene object and raises `ValueError` for invalid schema, shapes, time ordering, non-finite values, or unsupported roles.
-
-## Ground-truth helpers
-
-```python
-from acoustic_self_calibration import make_ground_truth_dict, write_ground_truth_json
-
-payload = make_ground_truth_dict(
-    microphone_positions_m=microphones,
-    source_times_s=times,
-    source_positions_m=trajectory,
-)
-
-write_ground_truth_json(
-    "ground_truth.json",
-    microphone_positions_m=microphones,
-    source_times_s=times,
-    source_positions_m=trajectory,
-)
-```
-
-## Calibration output
-
-Calibration results use the same core scene with `scene_role: "estimate"` and may add per-axis uncertainty:
+Solved calibration output adds:
 
 ```json
 {
-  "schema_version": 1,
-  "scene_role": "estimate",
-  "scene": {
-    "microphones": {
-      "positions_m": [[0.0, 0.0, 0.0]],
-      "std_m": [[0.0, 0.0, 0.0]]
-    },
-    "source": {
-      "times_s": [0.1],
-      "positions_m": [[1.0, 0.0, 1.0]],
-      "std_m": [[0.01, 0.01, 0.02]]
-    }
-  },
-  "input": {"wav_path": "recording.wav"},
-  "settings": {},
   "calibration": {
+    "backend": "stratified_tdoa",
+    "model": "general_3d",
+    "status": "solved",
     "speed_of_sound_mps": 343.0,
-    "speed_of_sound_std_mps": null,
-    "clock_offsets_s": [],
-    "clock_offset_std_s": null,
-    "clock_drifts": [],
-    "clock_drift_std": null
-  },
-  "measurements": {
-    "microphone_pairs": [[0, 1]],
-    "tdoa_s": [[0.0]],
-    "tdoa_sigma_s": [[0.000001]],
-    "confidence": [[1.0]]
-  },
-  "diagnostics": {
-    "success": true,
-    "message": "...",
-    "nfev": 10,
-    "rms_tdoa_residual_s": 0.000001,
-    "normalized_data_rms": 0.8,
-    "negative_log_posterior": 12.0
+    "rms_tdoa_residual_s": 0.00001,
+    "temporal_tracking_enabled": true,
+    "refinement": {
+      "mode": "wls",
+      "attempted": true,
+      "applied": true,
+      "reason": "accepted",
+      "initial_objective": 12.4,
+      "final_objective": 8.1,
+      "initial_tdoa_rms_s": 0.000011,
+      "final_tdoa_rms_s": 0.000009,
+      "independent_coordinate_count": 140,
+      "nfev": 18,
+      "max_nfev": 200,
+      "improvement_tolerance": 1e-10,
+      "termination": "ftol termination condition is satisfied",
+      "frozen_validation_score": 0.73,
+      "pre_refinement_scene": {"microphones": {}, "source": {}},
+      "post_refinement_scene": {"microphones": {}, "source": {}}
+    }
   }
 }
 ```
 
-If uncertainty calculation is disabled, uncertainty fields are JSON `null`.
+Status is one of:
 
-A result can be reused directly:
+- `solved`
+- `ambiguous`
+- `weakly_identified`
+- `degenerate`
+- `insufficient_data`
+- `failed`
 
-```bash
-asc calibrate second.wav -r first_calibration.json -o second_vs_first
-```
+The release does not export Bayesian posterior covariance. `std_m` fields are `null`.
+When refinement mode is `none`, refinement diagnostics and pre/post scenes are null/empty
+and `applied` is false. When `wls` or `huber` is requested, the original selected
+geometry and frozen held-out validation score remain recorded separately from the accepted
+post-selection training fit. `max_nfev` and `improvement_tolerance` record the configured
+optimization budget and acceptance threshold.
 
-The first calibration remains `scene_role: "estimate"`, making clear that it is a reference estimate rather than physical truth.
+## Measurements
 
-## Evaluation section
-
-When `asc calibrate ... -r REFERENCE` is used, output adds the validated input as `reference` plus an `evaluation` object.
-
-Alignment is fit **only from estimated microphones to reference microphones**. The same transform is applied to the estimated source trajectory; the source is never independently aligned. Reference source positions are linearly interpolated to the estimate timestamps, and reference time coverage must span all estimate times.
-
-The evaluation reports microphone and source RMS / mean / max position errors and, when calibration uncertainties are available, practical uncertainty-vs-error diagnostics.
-
-## Standalone comparison output
-
-`asc compare ESTIMATE REFERENCE -o PREFIX` performs the same geometry comparison without recalibrating audio:
-
-```bash
-asc compare run02.json run01.json -o run02_vs_run01
-```
-
-The comparison JSON keeps the estimate scene as its canonical top-level `scene`, so the output itself remains valid scene input. It additionally records:
+The measurement section records the immutable event TDOA boundary:
 
 ```json
 {
-  "comparison": {
-    "estimate_path": "run02.json",
-    "reference_path": "run01.json"
-  },
-  "reference": {
-    "schema_version": 1,
-    "scene_role": "estimate",
-    "scene": {}
-  },
-  "evaluation": {}
+  "measurements": {
+    "event_ids": [0, 1],
+    "receiver_event_times_s": [0.4, 0.6],
+    "event_samples": [19200, 28800],
+    "event_channel": 3,
+    "microphone_pairs": [[0, 1], [0, 2]],
+    "measurement_basis": "reference_star",
+    "measurement_origin": "derived_arrivals",
+    "covariance_model": "shared_reference_arrival_covariance",
+    "tdoa_s": [[0.0001, -0.0002]],
+    "tdoa_sigma_s": [[0.000002, 0.000003]],
+    "confidence": [[0.9, 0.8]],
+    "valid": [[true, true]]
+  }
 }
 ```
 
-The companion PNG contains 3-D, XY, XZ, and YZ panels with estimate and reference overlaid.
+Invalid measurements remain invalid; they are not serialized as fitted zeros.
 
-## Uncertainty diagnostic
+## Diagnostics
 
-When position standard deviations are available during calibration-time reference evaluation, the practical radial diagnostic is:
+The diagnostics section includes:
 
-```text
-rss_std = sqrt(std_x^2 + std_y^2 + std_z^2)
-ratio   = Euclidean_position_error / rss_std
+- minimal-subset/root counts,
+- metric candidate and geometric-class counts,
+- selected class support,
+- fitting/validation event counts,
+- conditioning,
+- robust held-out residual summaries,
+- generation/completion/validation lineage counts,
+- rejected-hypothesis reasons,
+- extra-microphone completion diagnostics,
+- competing class support.
+
+A selected hypothesis can contain:
+
+```json
+{
+  "conditioning": {
+    "metric_condition_number": 42.0,
+    "affine_factor_singular_ratio": 0.12
+  },
+  "validation": {
+    "normalized_huber_score": 0.7,
+    "inlier_fraction": 0.92
+  },
+  "lineage": {
+    "generation_count": 36,
+    "completion_count": 20,
+    "validation_count": 12
+  }
+}
 ```
 
-This is not a formal 3-D Gaussian coverage probability. The solver currently exposes marginal per-axis standard deviations, not complete per-position covariance matrices, and alignment uncertainty is not included.
+Unscored stages use `null`, not convincing-looking zero residuals.
+
+## Planar source representation
+
+For `model: "receiver2d_source3d"`, `scene.source` also contains:
+
+```json
+{
+  "representation": "positive_plane_normal_representative",
+  "projected_positions_m": [[0.4, -0.2]],
+  "unsigned_height_m": [1.1],
+  "height_sign_known": [false]
+}
+```
+
+The ordinary `positions_m` field is a positive-normal representative for visualization
+and scene tooling. It is not an independently observed signed 3-D source coordinate.
+The observable values are projection, unsigned height, and the sign-known mask.
+
+## Reference evaluation
+
+For general 3-D output, alignment is fit from microphones only. The same rigid transform
+is applied to source positions. Reference source coordinates are interpolated only over
+the time overlap.
+
+For planar output, calibration-time evaluation reports microphone error and observable
+projected-source/unsigned-height errors. It does not choose source-height signs.
+
+## Reusing output
+
+A solved general-3D result can be validated or compared directly:
+
+```bash
+asc check result.json
+asc compare estimate.json reference.json -o comparison
+```
+
+Diagnostic records with `null` geometry are valid run records but are not valid scene
+references until geometry exists.
+
+Planar output contains a conventional representative source scene, but consumers must
+retain the observable semantics described above.
