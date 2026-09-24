@@ -1,4 +1,7 @@
+from dataclasses import replace
+
 import numpy as np
+import pytest
 
 from acoustic_self_calibration.geometry import canonicalize_scene_conditioned
 from acoustic_self_calibration.measurements import EventTDOAMeasurements
@@ -11,7 +14,11 @@ from acoustic_self_calibration.simulation import (
     nondegenerate_planar_sources,
 )
 from acoustic_self_calibration.stratified.constraints import PlanarAngleConstraint
-from acoustic_self_calibration.stratified.refinement import _objective, refine_calibration
+from acoustic_self_calibration.stratified.refinement import (
+    _MeasurementObjective,
+    _objective,
+    refine_calibration,
+)
 from acoustic_self_calibration.stratified.solver import (
     PlanarCalibrationResult,
     StratifiedCalibrationDiagnostics,
@@ -52,6 +59,47 @@ def _measurements(
         measurement_origin="independent_pairs",
         measurement_basis="reference_star",
     )
+
+
+@pytest.mark.parametrize("dimension", [2, 3])
+def test_weighted_geometry_jacobian_matches_finite_differences(dimension: int) -> None:
+    rng = np.random.default_rng(433)
+    microphones = rng.normal(size=(6, 3))
+    if dimension == 2:
+        microphones[:, 2] = 0.0
+    sources = rng.normal(size=(5, 3)) + [0.0, 0.0, 3.0]
+    measurements = _measurements(microphones, sources, np.arange(5, dtype=float))
+    valid = measurements.valid.copy()
+    valid[1, 2] = False
+    covariance = np.broadcast_to(2e-12 * (np.eye(5) + np.ones((5, 5))), (5, 5, 5))
+    measurements = replace(
+        measurements,
+        valid=valid,
+        tdoa_s=np.where(valid, measurements.tdoa_s, np.nan),
+        sigma_s=np.where(valid, measurements.sigma_s, np.nan),
+        confidence=np.where(valid, measurements.confidence, np.nan),
+        covariance_s2=covariance,
+        covariance_model="full",
+    )
+    objective = _MeasurementObjective(measurements, 343.0)
+    free = np.arange(dimension, microphones.shape[0] * dimension)
+    analytic = objective.jacobian(microphones, sources, free, microphone_dimension=dimension)
+    numerical = np.empty_like(analytic)
+    step = 1e-6
+    for column in range(len(free) + sources.size):
+        mic_plus, mic_minus = microphones.copy(), microphones.copy()
+        src_plus, src_minus = sources.copy(), sources.copy()
+        if column < len(free):
+            receiver, axis = divmod(int(free[column]), dimension)
+            mic_plus[receiver, axis] += step
+            mic_minus[receiver, axis] -= step
+        else:
+            src_plus.flat[column - len(free)] += step
+            src_minus.flat[column - len(free)] -= step
+        numerical[:, column] = (
+            objective.residual(mic_plus, src_plus) - objective.residual(mic_minus, src_minus)
+        ) / (2.0 * step)
+    np.testing.assert_allclose(analytic, numerical, atol=2e-6, rtol=1e-6)
 
 
 def test_wls_refinement_improves_nearby_3d_geometry() -> None:
@@ -223,4 +271,80 @@ def test_planar_refinement_keeps_explicit_angle_anchors_exact() -> None:
         anchors_before,
         atol=1e-12,
         rtol=0.0,
+    )
+
+
+@pytest.mark.parametrize("sigma_s", [2e-6, 40e-6])
+@pytest.mark.parametrize("status", ["solved", "ambiguous"])
+def test_expanded_geometry_joint_fit_preserves_status(
+    monkeypatch: pytest.MonkeyPatch, sigma_s: float, status
+) -> None:
+    from acoustic_self_calibration.stratified import refinement, solver
+
+    rng = np.random.default_rng(831)
+    microphones = rng.uniform(-2.0, 2.0, (12, 3))
+    sources = rng.uniform(-3.0, 3.0, (30, 3))
+    measurements = _measurements(microphones, sources, np.arange(30, dtype=float))
+    measurements = replace(measurements, sigma_s=np.full_like(measurements.tdoa_s, sigma_s))
+    coarse_microphones = microphones[:8] + rng.normal(0.0, 0.005, (8, 3))
+    coarse_sources = sources + rng.normal(0.0, 0.005, sources.shape)
+    core = StratifiedCalibrationResult(
+        status=status,
+        microphone_positions_m=coarse_microphones,
+        source_positions_m=coarse_sources,
+        event_ids=measurements.event_ids,
+        tdoa_rms_s=1e-4,
+        selected_class=None,
+        classes=(),
+        diagnostics=_diagnostics(),
+    )
+    monkeypatch.setattr(solver, "calibrate_tdoa_8mic", lambda *args, **kwargs: core)
+    monkeypatch.setattr(
+        solver,
+        "_normalize_reference_star_measurements",
+        lambda value: (value, tuple(range(12))),
+    )
+    initial_rms = []
+    actual_refine = refinement.refine_calibration
+
+    def capture_refinement(calibration, values, **kwargs):
+        initial_rms.append(calibration.tdoa_rms_s)
+        assert values is measurements
+        return actual_refine(calibration, values, **kwargs)
+
+    monkeypatch.setattr(refinement, "refine_calibration", capture_refinement)
+    result = solver.calibrate_tdoa(measurements)
+    assert result.status == status
+    assert result.microphone_positions_m is not None
+    assert result.tdoa_rms_s is not None
+    assert result.diagnostics.extra_microphones_completed == 4
+    if sigma_s > 5e-3 / 343.0 and status == "solved":
+        assert len(initial_rms) == 1
+        assert result.tdoa_rms_s < initial_rms[0] * 0.1
+        assert np.linalg.norm(result.microphone_positions_m[:8] - coarse_microphones) > 1e-4
+    else:
+        assert len(initial_rms) == int(sigma_s > 5e-3 / 343.0)
+        assert np.array_equal(result.microphone_positions_m[:8], coarse_microphones)
+
+
+@pytest.mark.parametrize("first_support", [1, 3])
+def test_tied_geometry_search_checks_beyond_ineligible_or_duplicate_runner(
+    first_support: int,
+) -> None:
+    from acoustic_self_calibration.stratified.solver import _has_distinct_tied_geometry
+
+    microphones = np.random.default_rng(89).normal(size=(8, 3))
+    assert _has_distinct_tied_geometry(
+        microphones,
+        1e-5,
+        3,
+        [(1.01e-5, first_support, microphones.copy()), (1.02e-5, 3, 2 * microphones)],
+        score_tolerance=0.05,
+    )
+    assert not _has_distinct_tied_geometry(
+        microphones,
+        1e-5,
+        3,
+        [(1.01e-5, first_support, microphones.copy()), (1.06e-5, 3, 2 * microphones)],
+        score_tolerance=0.05,
     )

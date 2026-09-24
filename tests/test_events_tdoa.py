@@ -2,6 +2,8 @@ import numpy as np
 
 from acoustic_self_calibration.events import (
     EventDetection,
+    _lag_candidates,
+    _normalized_correlation_curve,
     estimate_event_tdoa_measurements,
 )
 from acoustic_self_calibration.simulation import broadband_pulse_train
@@ -93,3 +95,53 @@ def test_tracker_disabled_diagnostic_uses_same_contract() -> None:
     assert tracked.microphone_pairs == independent.microphone_pairs
     assert np.all(tracked.valid)
     assert np.all(independent.valid)
+
+
+def test_fractional_peak_uses_signed_correlation_neighbors() -> None:
+    # A parabola centered at +0.2 samples has negative neighbors. Clipping
+    # them for confidence before interpolation incorrectly returns zero.
+    samples = np.arange(-2, 3, dtype=float)
+    correlation = 0.8 - (samples - 0.2) ** 2
+    lags, confidence = _lag_candidates(
+        correlation,
+        max_lag_samples=2,
+        candidate_count=1,
+        minimum_peak_spacing_samples=1,
+    )
+    np.testing.assert_allclose(lags, [0.2], atol=1e-12)
+    assert 0.0 < confidence[0] <= 1.0
+
+
+def test_broadband_fractional_peak_is_not_biased_by_nyquist_energy() -> None:
+    samples = np.arange(-64, 65, dtype=float)
+    delay = 0.27
+    correlation = np.sinc(0.9 * (samples - delay)) * np.exp(-(((samples - delay) / 20) ** 2))
+    timing_correlation = np.sinc(0.2 * (samples - delay))
+    lags, _ = _lag_candidates(
+        correlation,
+        max_lag_samples=64,
+        candidate_count=1,
+        minimum_peak_spacing_samples=2,
+        timing_correlation=timing_correlation,
+    )
+    assert abs(lags[0] - delay) < 0.03
+
+
+def test_narrowband_timing_keeps_raw_peak_without_low_frequency_support() -> None:
+    samples = np.arange(1024, dtype=float)
+    pulse = np.cos(2 * np.pi * 0.4 * samples) * np.exp(-(((samples - 512) / 35) ** 2))
+    audio = np.column_stack((pulse, np.roll(pulse, 3)))
+    options = dict(
+        center_sample=512,
+        reference_channel=0,
+        target_channel=1,
+        half_template_samples=64,
+        max_lag_samples=12,
+    )
+    raw = _normalized_correlation_curve(audio, **options, band_limited=False)
+    timing = _normalized_correlation_curve(audio, **options, band_limited=True)
+    assert not np.any(timing)
+    peak_options = dict(max_lag_samples=12, candidate_count=1, minimum_peak_spacing_samples=2)
+    raw_lags, _ = _lag_candidates(raw, **peak_options, timing_correlation=None)
+    refined_lags, _ = _lag_candidates(raw, **peak_options, timing_correlation=timing)
+    np.testing.assert_array_equal(raw_lags, refined_lags)

@@ -4,9 +4,11 @@ from dataclasses import dataclass
 
 import numpy as np
 from scipy.ndimage import uniform_filter1d
-from scipy.signal import correlate, find_peaks
+from scipy.signal import butter, correlate, find_peaks, sosfiltfilt
 
 from .measurements import EventTDOAMeasurements, reference_star_from_arrivals
+
+_SUBSAMPLE_SOS = butter(4, 0.3, output="sos")
 
 
 @dataclass(frozen=True)
@@ -196,6 +198,7 @@ def _normalized_correlation_curve(
     target_channel: int,
     half_template_samples: int,
     max_lag_samples: int,
+    band_limited: bool = False,
 ) -> np.ndarray:
     template_length = 2 * half_template_samples + 1
     start = center_sample - max_lag_samples - half_template_samples
@@ -205,6 +208,33 @@ def _normalized_correlation_curve(
         reference_channel,
     ].astype(float, copy=True)
     target = signal[start:stop, target_channel].astype(float, copy=False)
+
+    if band_limited:
+        # Filter padded waveform windows before normalization. Filtering the
+        # normalized correlation instead mixes its changing energy denominator
+        # into the fractional delay estimate.
+        padding = 32
+        reference_start = center_sample - half_template_samples
+        reference_stop = center_sample + half_template_samples + 1
+        padded_start = max(0, reference_start - padding)
+        padded_stop = min(len(signal), reference_stop + padding)
+        filtered_reference = sosfiltfilt(
+            _SUBSAMPLE_SOS, signal[padded_start:padded_stop, reference_channel]
+        )
+        filtered_template = filtered_reference[
+            reference_start - padded_start : reference_stop - padded_start
+        ]
+        raw_energy = float(np.sum((template - np.mean(template)) ** 2))
+        filtered_energy = float(np.sum((filtered_template - np.mean(filtered_template)) ** 2))
+        if filtered_energy < 1e-3 * raw_energy:
+            return np.zeros(2 * max_lag_samples + 1)
+        template = filtered_template.copy()
+        padded_start = max(0, start - padding)
+        padded_stop = min(len(signal), stop + padding)
+        filtered_target = sosfiltfilt(
+            _SUBSAMPLE_SOS, signal[padded_start:padded_stop, target_channel]
+        )
+        target = filtered_target[start - padded_start : stop - padded_start]
 
     template -= float(np.mean(template))
     template_energy = float(np.dot(template, template))
@@ -239,6 +269,7 @@ def _lag_candidates(
     max_lag_samples: int,
     candidate_count: int,
     minimum_peak_spacing_samples: int,
+    timing_correlation: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     score = np.clip(np.asarray(correlation, dtype=float), 0.0, 1.0)
     peaks, _ = find_peaks(
@@ -252,14 +283,30 @@ def _lag_candidates(
         peaks = np.concatenate([peaks, np.array([global_peak], dtype=int)])
     order = np.argsort(score[peaks])[::-1][:candidate_count]
     selected = peaks[order]
-    refined = np.array(
-        [
-            float(index - max_lag_samples) + _parabolic_peak_offset(score, int(index))
-            for index in selected
-        ],
-        dtype=float,
-    )
-    return refined, np.clip(score[selected], 1e-4, 1.0)
+    # Near-Nyquist waveform energy biases three-point peak interpolation.
+    # Smooth only local timing; retain the raw peaks for association.
+    # Narrowband signals without low-frequency
+    # correlation support keep their signed, unfiltered interpolation.
+    refined = np.empty(len(selected), dtype=float)
+    confidence = np.empty(len(selected), dtype=float)
+    for position, index in enumerate(selected):
+        curve = correlation
+        if (
+            timing_correlation is not None
+            and timing_correlation[index] >= 0.01 * correlation[index]
+        ):
+            curve = timing_correlation
+            # The raw, high-frequency peak can round to the adjacent sample.
+            # Permit one sample of local movement, without changing events or
+            # jumping to another correlation lobe.
+            left = max(0, int(index) - 1)
+            right = min(len(curve), int(index) + 2)
+            index = left + int(np.argmax(curve[left:right]))
+        refined[position] = float(index - max_lag_samples) + _parabolic_peak_offset(
+            curve, int(index)
+        )
+        confidence[position] = curve[index]
+    return refined, np.clip(confidence, 1e-4, 1.0)
 
 
 def _select_smooth_lag_track(
@@ -389,6 +436,15 @@ def estimate_event_tdoa_measurements(
                     max_lag_samples=max_lag_samples,
                     candidate_count=candidate_count,
                     minimum_peak_spacing_samples=minimum_peak_spacing,
+                    timing_correlation=_normalized_correlation_curve(
+                        values,
+                        center_sample=int(center),
+                        reference_channel=event_channel,
+                        target_channel=channel,
+                        half_template_samples=half_template_samples,
+                        max_lag_samples=max_lag_samples,
+                        band_limited=True,
+                    ),
                 )
             )
         if use_temporal_tracking:

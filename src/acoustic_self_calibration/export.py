@@ -177,12 +177,15 @@ def calibration_result_to_dict(
         "std_m": None,
     }
     if isinstance(result.calibration, PlanarCalibrationResult):
+        planar = result.calibration
         source_scene.update(
             {
                 "representation": "positive_plane_normal_representative",
                 "projected_positions_m": _json_array(result.source_projected_positions_m),
                 "unsigned_height_m": _json_array(result.source_unsigned_heights_m),
                 "height_sign_known": _json_array(result.source_height_sign_known),
+                "half_space_sign": planar.source_half_space_sign,
+                "region_constraint_enforced": planar.source_region_constraint_enforced,
             }
         )
     scene = {

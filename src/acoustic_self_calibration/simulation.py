@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 import numpy as np
 
@@ -450,6 +451,206 @@ def make_myotis_cross_pulse_scene() -> SyntheticPulseScene:
         event_times_s=event_times,
         source_positions_at_events_m=myotis_cross_source_positions(event_times),
         audio=audio,
+    )
+
+
+def planar_benchmark_microphones(
+    microphone_count: int, *, array_span_m: float, layout: Literal["cross", "star"] = "cross"
+) -> np.ndarray:
+    """Nested planar arrays in the x/z plane, with channel 0 at the center.
+
+    Layout, angles, spacings, and span are generation truth only. The cross
+    is an ambiguity fixture when only planarity and source side are known.
+    """
+    if microphone_count not in (8, 12, 16, 24):
+        raise ValueError("microphone_count must be 8, 12, 16, or 24")
+    if not np.isfinite(array_span_m) or array_span_m <= 0:
+        raise ValueError("array_span_m must be finite and positive")
+    if layout == "cross":
+        directions = np.array(
+            [[1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [-1.0, 0.0, 0.0], [0.0, 0.0, -1.0]]
+        )
+    elif layout == "star":
+        angles = np.arange(6) * np.pi / 3.0
+        directions = np.column_stack((np.cos(angles), np.zeros(6), np.sin(angles)))
+        directions[:, 2] /= np.max(np.abs(directions[:, 2]))
+    else:
+        raise ValueError("layout must be cross or star")
+    fractions = (1.0, 0.5, 0.25, 0.75, 0.125, 0.375)
+    points = [np.zeros(3)]
+    for fraction in fractions:
+        points.extend(0.5 * array_span_m * fraction * directions)
+    return np.asarray(points[:microphone_count])
+
+
+def make_planar_benchmark_pulse_scene(
+    microphone_count: int,
+    *,
+    array_span_m: float,
+    source_distance_range_m: tuple[float, float],
+    layout: Literal["cross", "star"] = "cross",
+    event_count: int = 40,
+    seed: int = 0,
+    sample_rate_hz: int = 48_000,
+    noise_std: float = 1e-5,
+) -> SyntheticPulseScene:
+    """Render a planar benchmark with source distance measured normal to the plane.
+
+    Source motion spans x, y, and z and stays in y > 0. Identical seeds keep
+    trajectory and emitted pulses fixed across microphone counts. This is a
+    direct-path, synchronized-channel fixture, without simulated reflections.
+    """
+    microphones = planar_benchmark_microphones(
+        microphone_count, array_span_m=array_span_m, layout=layout
+    )
+    near, far = source_distance_range_m
+    if not np.isfinite([near, far]).all() or not 0 < near < far:
+        raise ValueError("source distances must be finite and satisfy 0 < near < far")
+    if event_count not in (20, 40):
+        raise ValueError("event_count must be 20 or 40")
+    if sample_rate_hz <= 0 or not np.isfinite(noise_std) or noise_std < 0:
+        raise ValueError("sample rate must be positive and noise_std finite and nonnegative")
+    duration = 5.0
+    rng = np.random.default_rng(seed)
+    phases = rng.uniform(0.0, 2.0 * np.pi, size=3)
+    times = np.linspace(0.0, duration, 201)
+    progress = times / duration
+    positions = np.column_stack(
+        [
+            0.4 * array_span_m * np.sin(2.0 * np.pi * progress + phases[0]),
+            near + (far - near) * (0.5 + 0.5 * np.sin(2.0 * np.pi * progress + phases[1])),
+            0.4 * array_span_m * np.sin(3.0 * np.pi * progress + phases[2]),
+        ]
+    )
+    return _render_benchmark_pulse_scene(
+        microphones, times, positions, event_count, sample_rate_hz, noise_std, rng
+    )
+
+
+def _render_benchmark_pulse_scene(
+    microphones: np.ndarray,
+    times: np.ndarray,
+    positions: np.ndarray,
+    event_count: int,
+    sample_rate_hz: int,
+    noise_std: float,
+    rng: np.random.Generator,
+) -> SyntheticPulseScene:
+    duration = float(times[-1])
+    event_times = np.linspace(0.4, 4.4, event_count)
+    signal = broadband_pulse_train(event_times, sample_rate_hz, duration, rng=rng)
+    audio = render_moving_source(
+        signal,
+        sample_rate_hz,
+        microphones,
+        times,
+        positions,
+        radiation_pattern="omni",
+        noise_std=noise_std,
+        rng=rng,
+    )
+    return SyntheticPulseScene(
+        sample_rate_hz=sample_rate_hz,
+        duration_s=duration,
+        microphone_positions_m=microphones,
+        trajectory_times_s=times,
+        trajectory_positions_m=positions,
+        event_times_s=event_times,
+        source_positions_at_events_m=_interpolate_positions(event_times, times, positions),
+        audio=audio,
+    )
+
+
+def room_benchmark_floor_polygon(
+    *,
+    room_span_m: tuple[float, float] = (6.0, 5.0),
+    layout: Literal["rectangular", "irregular"] = "rectangular",
+) -> np.ndarray:
+    """Return counterclockwise convex floor vertices, for generation/evaluation only."""
+    span = np.asarray(room_span_m, dtype=float)
+    if span.shape != (2,) or not np.isfinite(span).all() or np.any(span <= 0):
+        raise ValueError("room_span_m must contain two finite positive dimensions")
+    if layout == "rectangular":
+        vertices = np.array([[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]])
+    elif layout == "irregular":
+        vertices = np.array([[0.0, 0.15], [0.65, 0.0], [1.0, 0.3], [0.85, 1.0], [0.15, 0.9]])
+    else:
+        raise ValueError("layout must be rectangular or irregular")
+    return vertices * span
+
+
+def room_benchmark_microphones(
+    microphone_count: int,
+    *,
+    room_span_m: tuple[float, float] = (6.0, 5.0),
+    room_height_m: float = 3.0,
+    layout: Literal["rectangular", "irregular"] = "rectangular",
+    seed: int = 0,
+) -> np.ndarray:
+    """Nested wall microphones with unknown spacings and varying mounting heights.
+
+    Each wall receives a channel before any wall receives a second channel.
+    The layout and dimensions are generation truth, not solver constraints.
+    """
+    if microphone_count not in (8, 12, 16, 24):
+        raise ValueError("microphone_count must be 8, 12, 16, or 24")
+    if not np.isfinite(room_height_m) or room_height_m <= 0:
+        raise ValueError("room_height_m must be finite and positive")
+    vertices = room_benchmark_floor_polygon(room_span_m=room_span_m, layout=layout)
+    rng = np.random.default_rng(seed)
+    wall_indices = np.arange(24) % len(vertices)
+    fractions = rng.uniform(0.1, 0.9, 24)
+    horizontal = (1.0 - fractions[:, None]) * vertices[wall_indices] + fractions[
+        :, None
+    ] * vertices[(wall_indices + 1) % len(vertices)]
+    heights = room_height_m * rng.uniform(0.15, 0.85, 24)
+    return np.column_stack((horizontal, heights))[:microphone_count]
+
+
+def make_room_benchmark_pulse_scene(
+    microphone_count: int,
+    *,
+    room_span_m: tuple[float, float] = (6.0, 5.0),
+    room_height_m: float = 3.0,
+    layout: Literal["rectangular", "irregular"] = "rectangular",
+    event_count: int = 40,
+    seed: int = 0,
+    sample_rate_hz: int = 48_000,
+    noise_std: float = 1e-5,
+) -> SyntheticPulseScene:
+    """Render direct sound in a room-shaped volume, without wall reflections.
+
+    The smooth 3-D source path and every interpolated segment remain strictly
+    inside the convex room. Synchronized channels use omnidirectional sources.
+    Matched seeds preserve microphones, trajectory, and pulses across counts.
+    """
+    microphones = room_benchmark_microphones(
+        microphone_count,
+        room_span_m=room_span_m,
+        room_height_m=room_height_m,
+        layout=layout,
+        seed=seed,
+    )
+    if event_count not in (20, 40):
+        raise ValueError("event_count must be 20 or 40")
+    if sample_rate_hz <= 0 or not np.isfinite(noise_std) or noise_std < 0:
+        raise ValueError("sample rate must be positive and noise_std finite and nonnegative")
+    vertices = room_benchmark_floor_polygon(room_span_m=room_span_m, layout=layout)
+    rng = np.random.default_rng(seed)
+    phases = rng.uniform(0.0, 2.0 * np.pi, len(vertices) + 1)
+    times = np.linspace(0.0, 5.0, 201)
+    progress = times / times[-1]
+    # Strictly positive convex weights guarantee containment for either room.
+    frequencies = np.arange(1, len(vertices) + 1)
+    weights = np.exp(
+        1.8 * np.sin(2.0 * np.pi * progress[:, None] * frequencies / 2.0 + phases[:-1])
+    )
+    weights /= weights.sum(axis=1, keepdims=True)
+    horizontal = weights @ vertices
+    heights = room_height_m * (0.5 + 0.3 * np.sin(3.0 * np.pi * progress + phases[-1]))
+    positions = np.column_stack((horizontal, heights))
+    return _render_benchmark_pulse_scene(
+        microphones, times, positions, event_count, sample_rate_hz, noise_std, rng
     )
 
 
