@@ -4,7 +4,7 @@ Updated 2026-09-24. This document contains the decisions, PR plan, results, and 
 
 ## Current state and user instructions
 
-- Branch `rewrite/stratified-tdoa-calibration`. Draft PR #8 is titled “Rewrite calibration around stratified TDOA geometry.” Work is committed locally on this branch (see git log); push only when asked. The PR remains draft until all gates pass.
+- Branch `rewrite/stratified-tdoa-calibration`. PR #8 “Rewrite calibration around stratified TDOA geometry” is **open, not draft**; pushed through `9638491`. CI green on Python 3.11–3.14.
 - User preferences: very concise updates and commits; prioritize performance, reliability, and predictable failure; avoid duplicate logic; use CLI for git; make coherent commits; do not weaken tests to hide failures. Parallel work is authorized when useful. For long commands, preserve output and use completion notifications rather than repeated polling.
 
 ## Why the benchmark changed
@@ -37,7 +37,7 @@ Use event TDOAs to recover event range offsets, factor corrected ranges, upgrade
 - General geometry: dimension-aware offset expansion and optional rank refinement; negative inferred ranges reject their candidate; noise-scaled completion tolerance; approximate branches receive source refresh/Huber refinement; widespread residuals inconsistent with timing uncertainty downgrade status. Noisy expanded arrays get joint all-mic refinement with rollback.
 - Planar geometry: fitting-only diverse event seeds plus a temporal seed; corrected squared-range noise allowance; exact explicit right-angle constraint; metric conditioning and local Jacobian sensitivity after projecting out source and rigid-gauge directions. A Gaussian goodness-of-fit check can downgrade `solved`. These are local diagnostics, not a global uniqueness proof.
 - Refinement: shared covariance whitening and analytic Jacobian. Ambiguity comparison considers later comparable candidates.
-- CI: draft-aware trigger and bounded BLAS threads edited locally; GitHub CI has not run for these edits.
+- CI: draft-aware trigger, Python 3.11–3.14 matrix, bounded BLAS threads. Run `35992415084` **success** on all four versions after ready-for-review.
 
 ## Measured results and limits
 
@@ -52,10 +52,12 @@ Local results for the current tree (2026-09-24), `OPENBLAS_NUM_THREADS=1`. Accur
 | Exact room seeds 0–2 (48 rows) | 48/48 `solved`, mic RMS 0.0 | Full matrix |
 | Noisy room 2 µs (48 rows) | 48/48 `solved`, max mic RMS 8.2 mm | Full matrix |
 | Audio T-004 `test_stratified_audio_{spec,8mic,large_arrays}`, `test_stratified_wav`, `test_end_to_end_audio` | 17 + 6 passed (gates 0.15/0.18/0.22 m, 60 µs) | 42 min wall |
+| Planar audio fresh seeds 3–5 (96 rows) | 0 false-solved crosses; 0 solved >0.15 m; star 38 solved / 10 weak; cross 41 weak / 7 failed | Optional confidence run |
 | Non-audio pytest (`tests/` minus audio files) | 266 passed, 0 failed | Full local suite |
+| GitHub CI PR #8 run `35992415084` | Python 3.11/3.12/3.13/3.14 all success (full suite + ruff + ty + build + CLI) | Remote |
 | Ruff check/format, Ty, `uv build`, `asc --help` | Passed | After final edits |
 
-Known limits: no wall-reflection simulation; room containment not a solver input; planar cross unconstrained path is a continuous-ambiguity test (expect weak/degenerate, never false `solved`); planar noise sensitivity is a local diagnostic. GitHub CI (Python 3.11–3.14 matrix) has not run for these commits.
+Known limits: no wall-reflection simulation; room containment not a solver input; planar cross unconstrained path is a continuous-ambiguity test (expect weak/degenerate, never false `solved`); planar noise sensitivity is a local diagnostic.
 
 ## PR ticket plan, reproduced here
 
@@ -67,13 +69,12 @@ Known limits: no wall-reflection simulation; room containment not a solver input
 - **T-006, verified locally:** constrained Myotis, unconstrained exact cross degeneracy, ID survival, unsigned-height evaluation tests pass.
 - **T-007, verified locally:** model-selection and expansion membership-constraint tests pass.
 - **T-008, verified locally:** focused suites, Ruff, Ty, CLI smoke, `uv build`; no debug-only artifacts.
-- **T-009, partial:** draft-aware CI trigger and py 3.11–3.14 matrix edited; **GitHub CI not run**. Keep PR draft until remote CI passes; mark ready only then.
+- **T-009, done:** draft-aware CI trigger and py 3.11–3.14 matrix verified; run `35992415084` green; PR #8 ready for review (not draft).
 
 ## Next sequence when explicitly resumed
 
-1. Push branch and let PR #8 CI run the draft-aware workflow (Python 3.11–3.14). Fix remote failures without loosening accuracy gates.
-2. Optionally extend fresh-seed planar audio (not run for seeds 3–5) if rate confidence is needed; exact/noisy TDOA fresh seeds already clean.
-3. Mark PR ready only after CI is green. Remaining product gaps (reflections, room containment prior, signed planar half-space enforcement) stay open unless requested.
+1. Merge PR #8 if desired, or open follow-ups for remaining product gaps (wall reflections, room containment prior, signed planar half-space enforcement).
+2. Optional: more fresh-seed planar audio if rate confidence is needed beyond seeds 0–5.
 
 Run checks from this repository. Examples:
 
