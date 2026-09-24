@@ -32,6 +32,7 @@ from .offsets_minimal import solve_offsets_7r6s
 from .planar import (
     localize_planar_receiver_from_ranges,
     localize_planar_source_from_tdoa,
+    squared_range_noise_tolerance,
     upgrade_metric_planar,
 )
 from .robustness import (
@@ -66,6 +67,10 @@ class StratifiedCalibrationDiagnostics:
     rejection_reasons: tuple[str, ...]
     extra_microphones_completed: int = 0
     extra_microphone_max_inlier_rms_m: float | None = None
+    planar_microphone_rms_std_m: float | None = None
+    planar_relative_std: float | None = None
+    planar_fit_p_value: float | None = None
+    planar_reduced_chi_square: float | None = None
 
 
 @dataclass(frozen=True)
@@ -97,6 +102,8 @@ class PlanarCalibrationResult:
     continuous_ambiguity_dimension: int | None = None
     continuous_ambiguity_nullspace: np.ndarray | None = None
     angle_constraint: PlanarAngleConstraint | None = None
+    source_half_space_sign: int | None = None
+    source_region_constraint_enforced: bool = False
 
 
 @dataclass(frozen=True)
@@ -104,6 +111,49 @@ class JointModelCalibrationResult:
     comparison: ModelComparisonResult
     planar: PlanarCalibrationResult
     general_3d: StratifiedCalibrationResult
+
+
+def _assess_planar_noise_sensitivity(
+    result: PlanarCalibrationResult,
+    measurements: EventTDOAMeasurements,
+    speed_of_sound: float,
+) -> PlanarCalibrationResult:
+    if (
+        result.angle_constraint is not None
+        or result.microphone_positions_m is None
+        or result.source_representative_positions_m is None
+        or not np.all(np.isfinite(result.microphone_positions_m))
+        or not np.all(np.isfinite(result.source_representative_positions_m))
+    ):
+        return result
+    from .refinement import estimate_planar_noise_sensitivity
+
+    sensitivity = estimate_planar_noise_sensitivity(
+        result.microphone_positions_m,
+        result.source_representative_positions_m,
+        measurements,
+        speed_of_sound=speed_of_sound,
+    )
+    noise_sensitive = sensitivity.relative_weakest_std > 0.05
+    poor_fit = sensitivity.fit_p_value is not None and sensitivity.fit_p_value < 0.001
+    weak = noise_sensitive or poor_fit
+    reasons = result.diagnostics.rejection_reasons
+    if noise_sensitive and "planar_geometry_noise_sensitive" not in reasons:
+        reasons = (*reasons, "planar_geometry_noise_sensitive")
+    if poor_fit and "planar_fit_exceeds_timing_uncertainty" not in reasons:
+        reasons = (*reasons, "planar_fit_exceeds_timing_uncertainty")
+    return replace(
+        result,
+        status="weakly_identified" if weak and result.status == "solved" else result.status,
+        diagnostics=replace(
+            result.diagnostics,
+            rejection_reasons=reasons,
+            planar_microphone_rms_std_m=sensitivity.weakest_microphone_rms_std_m,
+            planar_relative_std=sensitivity.relative_weakest_std,
+            planar_fit_p_value=sensitivity.fit_p_value,
+            planar_reduced_chi_square=sensitivity.reduced_chi_square,
+        ),
+    )
 
 
 def _measurement_transform_quality(
@@ -149,10 +199,53 @@ def _reference_transform(
     return incidence @ arrivals_from_pairs
 
 
+def _diverse_planar_targets(
+    measurements: EventTDOAMeasurements,
+    arrivals_from_pairs: np.ndarray,
+    reference_input: int,
+    ordered_targets: list[int],
+    required_targets: list[int],
+) -> list[int]:
+    """Choose independent offset-system rows using complete fitting events only."""
+    fitting_events, _ = _split_events(len(measurements.event_ids))
+    fit = np.asarray(fitting_events)
+    fit = fit[np.all(measurements.valid[fit], axis=1)]
+    if len(fit) < 4:
+        return ordered_targets
+    transform = _reference_transform(
+        arrivals_from_pairs,
+        reference_input_index=reference_input,
+        target_input_indices=tuple(ordered_targets),
+    )
+    arrivals = (measurements.tdoa_s[fit] @ transform.T).T
+    # Both terms enter the linear offset equations. Column normalization
+    # removes units without treating a dense collinear cluster as diverse.
+    features = np.column_stack((arrivals, arrivals**2))
+    scales = np.linalg.norm(features, axis=0)
+    features /= np.maximum(scales, np.finfo(float).tiny)
+    residuals = features.copy()
+    selected = [ordered_targets.index(target) for target in required_targets]
+    for step in range(7):
+        if step >= len(selected):
+            scores = np.sum(residuals**2, axis=1)
+            scores[selected] = -1.0
+            selected.append(int(np.argmax(scores)))
+        direction = residuals[selected[step]].copy()
+        norm = float(np.linalg.norm(direction))
+        if norm > np.finfo(float).eps:
+            direction /= norm
+            residuals -= np.outer(residuals @ direction, direction)
+    chosen = {ordered_targets[index] for index in selected}
+    return [ordered_targets[index] for index in selected] + [
+        target for target in ordered_targets if target not in chosen
+    ]
+
+
 def _normalize_reference_star_measurements(
     measurements: EventTDOAMeasurements,
     *,
     required_microphone_ids: tuple[int, ...] = (),
+    diverse_planar_seed: bool = False,
 ) -> tuple[EventTDOAMeasurements, tuple[int, ...]]:
     """Choose a stable reference/order and convert to the solver's dense star convention."""
     if measurements.measurement_basis != "reference_star":
@@ -229,6 +322,15 @@ def _normalize_reference_star_measurements(
         target_scores.append((-supported, sigma, target))
     target_scores.sort()
     ordered_targets = [target for _, _, target in target_scores]
+
+    if diverse_planar_seed and microphone_count > 8:
+        ordered_targets = _diverse_planar_targets(
+            measurements,
+            arrivals_from_pairs,
+            reference_input,
+            ordered_targets,
+            required_targets,
+        )
 
     seed_target_count = min(7, len(ordered_targets))
     required_set = set(required_targets)
@@ -439,6 +541,29 @@ def _split_events(event_count: int) -> tuple[tuple[int, ...], tuple[int, ...]]:
     return fitting, validation
 
 
+def _seed_phases(count: int) -> tuple[float, ...]:
+    """Budget-independent phase sequence: family k never depends on the budget."""
+    if count < 1:
+        raise ValueError("phase count must be positive")
+    phases = [0.0]
+    if count > 1:
+        phases.append(0.75)
+    intervals: list[tuple[float, float]] = [(0.0, 0.75)]
+    index = 0
+    while len(phases) < count:
+        lo, hi = intervals[index % len(intervals)]
+        index += 1
+        mid = 0.5 * (lo + hi)
+        if mid <= lo or mid >= hi:
+            if len(intervals) == 1:
+                break
+            continue
+        phases.append(mid)
+        intervals.append((lo, mid))
+        intervals.append((mid, hi))
+    return tuple(phases[:count])
+
+
 def _seed_event_families(
     fitting_events: tuple[int, ...],
     *,
@@ -449,8 +574,7 @@ def _seed_event_families(
         raise ValueError("subset budget must be positive")
     values = np.asarray(fitting_events, dtype=int)
     families: list[tuple[int, ...]] = []
-    phases = np.linspace(0.0, 0.75, max(budget, 1), endpoint=True)
-    for phase in phases:
+    for phase in _seed_phases(budget):
         positions = np.linspace(
             phase,
             len(values) - 1 - (0.75 - phase),
@@ -463,7 +587,44 @@ def _seed_event_families(
             break
     if not families:
         families.append(tuple(int(value) for value in values[:seed_size]))
-    return tuple(families)
+    return tuple(families[:budget])
+
+
+def _planar_seed_event_families(
+    arrivals_m: np.ndarray,
+    valid: np.ndarray,
+    fitting_events: tuple[int, ...],
+    *,
+    budget: int,
+) -> tuple[tuple[int, ...], ...]:
+    """Choose independent fitting observations without using held-out events."""
+    if budget < 1:
+        raise ValueError("subset budget must be positive")
+    events = np.asarray([event for event in fitting_events if np.all(valid[:, event])], dtype=int)
+    if len(events) < 4:
+        return _seed_event_families(fitting_events, budget=budget, seed_size=4)
+    values = arrivals_m[:, events].T
+    scale = max(float(np.max(np.abs(values))), np.finfo(float).eps)
+    values = values / scale
+    features = np.column_stack((values, values**2, np.ones(len(events))))
+    families: list[tuple[int, ...]] = []
+    for first in np.argsort(-np.linalg.norm(features, axis=1), kind="stable"):
+        chosen = [int(first)]
+        for _ in range(3):
+            basis = np.linalg.svd(features[chosen], full_matrices=False)[2]
+            residual = features - features @ basis.T @ basis
+            scores = np.linalg.norm(residual, axis=1)
+            scores[chosen] = -1.0
+            chosen.append(int(np.argmax(scores)))
+        family = tuple(sorted(int(event) for event in events[chosen]))
+        if family not in families:
+            families.append(family)
+        if len(families) == budget:
+            break
+    # Combine measurement diversity with temporal coverage. Either criterion
+    # alone can repeatedly select an unstable minimal offset system.
+    temporal = _seed_event_families(tuple(int(event) for event in events), budget=1, seed_size=4)
+    return tuple(dict.fromkeys((*families[:1], *temporal, *families[1:])))[:budget]
 
 
 def _receiver_subsets(microphone_count: int, *, budget: int) -> tuple[tuple[int, ...], ...]:
@@ -535,23 +696,16 @@ def _complete_geometry(
     if len(complete_fitting) < 6:
         return None
 
-    # Noise-aware tolerances derived from measurement uncertainty (T-004).
-    # Audio-extracted TDOAs carry ~6us RMS error with median sigma ~60us, while
-    # exact TDOAs use sigma 2us. Fixed micron tolerances (20um metric, 10um
-    # receiver, 1e-7 membership) reject all noisy hypotheses. The metric
-    # acceptance is a completion filter (not a quality certificate): noisy
-    # metric branches carry algebraic approximation error well above 3-sigma
-    # (observed 0.06-0.12m), so the noisy regime admits branches within the
-    # deterministic polish basin (0.1m) and leaves final quality to held-out
-    # validation selection, polish, and the acceptance gates.
+    # Algebraic completion amplifies timing noise before nonlinear refinement.
+    # Audio-extracted TDOAs carry ~6us RMS with median sigma ~60us (range
+    # uncertainty > 5e-3 m) and admit approximate roots within the deterministic
+    # polish basin; exact/low-noise inputs keep the tight 2e-5 m gate so a
+    # single contaminated hypothesis cannot enter the polish basin.
     valid_sigma = measurements.sigma_s[measurements.valid]
     valid_sigma = valid_sigma[np.isfinite(valid_sigma)]
     median_sigma_s = float(np.median(valid_sigma)) if valid_sigma.size else 2e-6
     sigma_range_m = median_sigma_s * speed_of_sound
-    if sigma_range_m > 5e-3:
-        acceptance_rms_m = 0.1
-    else:
-        acceptance_rms_m = 2e-5
+    acceptance_rms_m = 0.1 if sigma_range_m > 5e-3 else 2e-5
     membership_tolerance = min(5e-3, max(1e-7, acceptance_rms_m / 4.0))
     receiver_inlier_tolerance_m = max(1e-5, acceptance_rms_m)
 
@@ -561,6 +715,8 @@ def _complete_geometry(
             seed_root_offsets_m,
             arrivals_m[np.ix_(seed_receivers, complete_fitting)],
             membership_tolerance=membership_tolerance,
+            dimension=3,
+            refine_rank=True,
         )
     except ValueError:
         return None
@@ -617,6 +773,10 @@ def _complete_geometry(
             arrivals_m[excluded, successful_events[excluded_fit_mask]]
             - successful_offsets[excluded_fit_mask]
         )
+        # An offset branch can fit its seed receivers yet imply impossible
+        # ranges at the excluded receiver. Reject that branch before trilateration.
+        if not np.all(np.isfinite(excluded_ranges)) or np.any(excluded_ranges < 0.0):
+            continue
         localized_receiver = localize_receiver_from_ranges(
             metric_candidate.source_positions_m[excluded_fit_mask],
             excluded_ranges,
@@ -691,7 +851,7 @@ def _complete_geometry(
                 continue
             source_positions[event] = source.source_position_m
             for receiver in localization_receivers:
-                if receiver != 0:
+                if receiver != 0 and not generation_mask[receiver, event]:
                     completion_mask[receiver, event] = True
 
             if event not in validation_set:
@@ -1130,6 +1290,7 @@ def _bundle_adjustment_fallback_8mic(
                 np.asarray(seed_offsets, dtype=float),
                 arrivals_m[np.ix_(seed_receivers, complete_fitting)],
                 membership_tolerance=5e-3,
+                dimension=3,
             )
         except ValueError:
             continue
@@ -1321,13 +1482,32 @@ def _bundle_adjustment_fallback_8mic(
     for event in range(event_count):
         if np.all(np.isfinite(source_positions[event])):
             continue
-        localization_receivers = _localization_receivers_for_event(
-            primitive_valid,
-            event,
-            receiver_count=8,
+        # Hold out only the last two valid non-reference receivers. A fixed
+        # 5-mic fit + 3-mic holdout is ill-conditioned when sources sit near
+        # the array (room scenes); one wild held-out residual fails the 60us
+        # gate even when the full-event score is at measurement noise.
+        scored_receivers = [
+            receiver for receiver in range(7, 0, -1) if bool(valid[event, receiver - 1])
+        ][:2]
+        scored_set = set(scored_receivers)
+        localization_receivers = tuple(
+            receiver
+            for receiver in range(8)
+            if receiver == 0 or (bool(valid[event, receiver - 1]) and receiver not in scored_set)
         )
-        if localization_receivers is None:
-            continue
+        if len(localization_receivers) < 5 or localization_receivers[0] != 0:
+            localization_receivers = _localization_receivers_for_event(
+                primitive_valid,
+                event,
+                receiver_count=8,
+            )
+            if localization_receivers is None:
+                continue
+            scored_set = {
+                receiver
+                for receiver in range(1, 8)
+                if receiver not in localization_receivers and valid[event, receiver - 1]
+            }
         receiver_index = np.asarray(localization_receivers, dtype=int)
         relative_m = np.zeros(len(receiver_index), dtype=float)
         # arrivals relative to reference receiver 0 in meters
@@ -1356,9 +1536,7 @@ def _bundle_adjustment_fallback_8mic(
         )[0]
         event_residuals: list[float] = []
         heldout_columns: list[int] = []
-        for receiver in range(1, 8):
-            if receiver in localization_receivers:
-                continue
+        for receiver in sorted(scored_set):
             column = receiver - 1
             if not valid[event, column]:
                 continue
@@ -1490,6 +1668,30 @@ def _dedupe_classes(classes: list[HypothesisClass]) -> list[HypothesisClass]:
     return seen
 
 
+def _has_distinct_tied_geometry(
+    microphones: np.ndarray,
+    score: float,
+    support: int,
+    runners: list[tuple[float, int, np.ndarray]],
+    *,
+    score_tolerance: float,
+) -> bool:
+    """Check all competitive runners, ordered by increasing non-negative score."""
+    for runner_score, runner_support, runner_mics in runners:
+        if runner_score - score > score_tolerance * max(abs(score), 1e-9):
+            break
+        if runner_support < support:
+            continue
+        try:
+            aligned, _, _ = rigid_align(runner_mics, microphones)
+            distance = rms_position_error(aligned, microphones)
+        except ValueError:
+            distance = float("inf")
+        if distance > 0.05:
+            return True
+    return False
+
+
 def _event_validation_rms(
     microphones: np.ndarray,
     measurements: EventTDOAMeasurements,
@@ -1555,6 +1757,57 @@ def _event_validation_rms(
     if count == 0:
         return float("inf")
     return float(np.sqrt(squared_sum / count))
+
+
+def _fitting_event_rms(
+    microphones: np.ndarray,
+    sources: np.ndarray,
+    measurements: EventTDOAMeasurements,
+    fitting_events: tuple[int, ...],
+    speed_of_sound: float,
+) -> float:
+    """RMS residual restricted to fitting events (held-out validation excluded)."""
+    predicted = _tdoa_predictions(microphones, sources, speed_of_sound)
+    fit = np.asarray(fitting_events, dtype=int)
+    mask = measurements.valid[fit] & np.isfinite(predicted[fit])
+    residual = (predicted - measurements.tdoa_s)[fit][mask]
+    if residual.size == 0:
+        return float("inf")
+    return float(np.sqrt(np.mean(residual * residual)))
+
+
+def _check_general_fit_uncertainty(
+    result: StratifiedCalibrationResult,
+    measurements: EventTDOAMeasurements,
+    speed_of_sound: float,
+) -> StratifiedCalibrationResult:
+    """Do not certify geometry whose typical residual exceeds timing uncertainty."""
+    if (
+        result.status != "solved"
+        or result.microphone_positions_m is None
+        or result.source_positions_m is None
+    ):
+        return result
+    predicted = _tdoa_predictions(
+        result.microphone_positions_m, result.source_positions_m, speed_of_sound
+    )
+    normalized = (
+        np.abs(predicted - measurements.tdoa_s)[measurements.valid]
+        / (measurements.sigma_s[measurements.valid])
+    )
+    # A median tolerates isolated outliers. This rejects widespread mismatch,
+    # not geometric ambiguity, which requires separate identification checks.
+    if not np.all(np.isfinite(normalized)) or float(np.median(normalized)) > 3.0:
+        return replace(
+            result,
+            status="weakly_identified",
+            diagnostics=replace(
+                result.diagnostics,
+                rejection_reasons=result.diagnostics.rejection_reasons
+                + ("residual_exceeds_timing_uncertainty",),
+            ),
+        )
+    return result
 
 
 def calibrate_tdoa_8mic(
@@ -1699,6 +1952,21 @@ def calibrate_tdoa_8mic(
             ),
         )
 
+    # Approximate completions need source refresh and class-wise refinement even
+    # when timing uncertainty lies below the expensive broad-search threshold.
+    # Gate on fitting-event residual only: a held-out validation outlier must
+    # not trigger polish that refits geometry to accommodate it.
+    min_fitting_rms = min(
+        _fitting_event_rms(
+            np.asarray(hypothesis.microphone_positions_m),
+            np.asarray(hypothesis.source_positions_m),
+            measurements,
+            fitting_events,
+            speed_of_sound,
+        )
+        for hypothesis in hypotheses
+    )
+    noisy_regime = noisy_regime or min_fitting_rms * speed_of_sound > 2e-5
     classes = cluster_equivalent_hypotheses(
         tuple(hypotheses),
         microphone_rms_tolerance_m=class_tolerance_m,
@@ -1708,6 +1976,8 @@ def calibrate_tdoa_8mic(
         # with bad sources/completions that every pre-polish score misranks;
         # polishing each candidate class and selecting by post-polish
         # event-level validation recovers them. Exact regime untouched below.
+        # Huber only: a following WLS step refits outliers and breaks robust
+        # selection; planar chi-square calibration uses polish_huber_then_wls.
         from .refinement import refine_calibration
 
         id_to_index = {
@@ -1774,6 +2044,32 @@ def calibrate_tdoa_8mic(
                     representative.validation.independent_coordinate_count
                 ),
                 rejection_reasons=tuple(rejections),
+            )
+
+            # Unpolished baseline competes on the same full-event validation
+            # score as polished variants so a fitting-set outlier cannot drag
+            # near-truth geometry into the outlier basin and still win.
+            baseline_score = _event_validation_rms(
+                np.asarray(representative.microphone_positions_m),
+                measurements,
+                validation_events,
+                speed_of_sound,
+            )
+            polished_options.append(
+                (
+                    baseline_score,
+                    hypothesis_class,
+                    StratifiedCalibrationResult(
+                        status="solved",
+                        microphone_positions_m=np.asarray(representative.microphone_positions_m),
+                        source_positions_m=np.asarray(representative.source_positions_m),
+                        event_ids=measurements.event_ids,
+                        tdoa_rms_s=representative.full_tdoa_rms_s,
+                        selected_class=hypothesis_class,
+                        classes=classes,
+                        diagnostics=placeholder,
+                    ),
+                )
             )
 
             def polish_variant(candidate_sources: np.ndarray) -> float | None:
@@ -1898,37 +2194,23 @@ def calibrate_tdoa_8mic(
             )
             _, selected_polished_class, selected_polished = polished_options[0]
             polished_status: CalibrationStatus = "solved"
-            # Ambiguity compares distinct geometric classes: two polish
-            # variants of the same class validating within tolerance is
-            # agreement, not ambiguity.
-            selected_polished_mics = np.asarray(selected_polished.microphone_positions_m)
-            for runner_score, runner_class, runner_polished in polished_options[1:]:
-                if runner_class is selected_polished_class:
-                    continue
-                best_score = polished_options[0][0]
-                if not (
-                    runner_class.independent_subset_support
-                    >= selected_polished_class.independent_subset_support
-                    and abs(runner_score - best_score)
-                    <= ambiguity_score_tolerance * max(abs(best_score), 1e-9)
-                ):
-                    break
-                # Tied but geometrically coincident runners are duplicate
-                # basin splits, not genuine ambiguity: only distinct
-                # geometries (aligned mic RMS beyond 5cm, a third of the
-                # acceptance gate) keep the ambiguous verdict. Compare the
-                # polished geometries (the actual selection candidates),
-                # not the coarse representatives.
-                runner_mics = np.asarray(runner_polished.microphone_positions_m)
-                try:
-                    aligned_runner, _, _ = rigid_align(runner_mics, selected_polished_mics)
-                    runner_distance_m = rms_position_error(aligned_runner, selected_polished_mics)
-                except ValueError:
-                    runner_distance_m = float("inf")
-                if runner_distance_m > 0.05:
-                    polished_status = "ambiguous"
-                break
-            return StratifiedCalibrationResult(
+            if _has_distinct_tied_geometry(
+                np.asarray(selected_polished.microphone_positions_m),
+                polished_options[0][0],
+                selected_polished_class.independent_subset_support,
+                [
+                    (
+                        runner_score,
+                        runner_class.independent_subset_support,
+                        np.asarray(runner_polished.microphone_positions_m),
+                    )
+                    for runner_score, runner_class, runner_polished in polished_options[1:]
+                    if runner_class is not selected_polished_class
+                ],
+                score_tolerance=ambiguity_score_tolerance,
+            ):
+                polished_status = "ambiguous"
+            selected_result = StratifiedCalibrationResult(
                 status=polished_status,
                 microphone_positions_m=np.asarray(selected_polished.microphone_positions_m),
                 source_positions_m=np.asarray(selected_polished.source_positions_m),
@@ -1956,6 +2238,7 @@ def calibrate_tdoa_8mic(
                     rejection_reasons=tuple(rejections),
                 ),
             )
+            return _check_general_fit_uncertainty(selected_result, measurements, speed_of_sound)
     if noisy_regime and len(classes) > 1:
         # Receiver-holdout Huber ties (or inverts) on coarse noisy hypotheses;
         # event-level validation separates truth-proximal classes by 10-100x.
@@ -2026,12 +2309,23 @@ def calibrate_tdoa_8mic(
             rejection_reasons=tuple(rejections),
         ),
     )
-    if noisy_regime and result.status == "solved":
-        # Deterministic Huber polish of the selected noisy geometry (T-004).
-        # The stratified algebraic stages land near-truth candidates (e.g. 15 cm)
-        # whose basin the gauge-reduced robust refinement finishes to cm level.
-        # Deferred import avoids a refinement<->solver module cycle. Rollback
-        # inside refinement keeps the unpolished result when polish stalls.
+    if result.status == "solved" and (
+        noisy_regime
+        or (
+            _fitting_event_rms(
+                np.asarray(result.microphone_positions_m),
+                np.asarray(result.source_positions_m),
+                measurements,
+                fitting_events,
+                speed_of_sound,
+            )
+            * speed_of_sound
+            > 2e-5
+        )
+    ):
+        # Huber polish of the selected noisy geometry (T-004). Deferred import
+        # avoids a refinement<->solver module cycle; rollback inside refinement
+        # keeps the unpolished result when polish stalls.
         from .refinement import refine_calibration
 
         polished, polish_diagnostics = refine_calibration(
@@ -2042,8 +2336,24 @@ def calibrate_tdoa_8mic(
             max_nfev=500,
         )
         if polish_diagnostics.accepted and isinstance(polished, StratifiedCalibrationResult):
-            return polished
-    return result
+            # Huber can reduce fitting loss by dragging geometry toward a
+            # fitting-set outlier while held-out validation worsens; keep the
+            # unpolished result unless validation does not regress.
+            unpolished_score = _event_validation_rms(
+                np.asarray(result.microphone_positions_m),
+                measurements,
+                validation_events,
+                speed_of_sound,
+            )
+            polished_score = _event_validation_rms(
+                np.asarray(polished.microphone_positions_m),
+                measurements,
+                validation_events,
+                speed_of_sound,
+            )
+            if polished_score <= unpolished_score:
+                return _check_general_fit_uncertainty(polished, measurements, speed_of_sound)
+    return _check_general_fit_uncertainty(result, measurements, speed_of_sound)
 
 
 def calibrate_planar_tdoa_8mic(
@@ -2065,10 +2375,11 @@ def calibrate_planar_tdoa_8mic(
     )
     fitting_events, validation_events = _split_events(len(measurements.event_ids))
     receiver_subsets = _receiver_subsets(8, budget=receiver_subset_budget)
-    seed_families = _seed_event_families(
+    seed_families = _planar_seed_event_families(
+        arrivals_m,
+        primitive_valid,
         fitting_events,
         budget=event_subset_budget,
-        seed_size=4,
     )
 
     hypotheses: list[
@@ -2080,6 +2391,7 @@ def calibrate_planar_tdoa_8mic(
             RobustResidualSummary,
             float,
             bool,
+            bool,
         ]
     ] = []
     rejections: list[str] = []
@@ -2087,6 +2399,10 @@ def calibrate_planar_tdoa_8mic(
     generated = 0
     continuous_ambiguity_dimension: int | None = None
     continuous_ambiguity_nullspace: np.ndarray | None = None
+    planar_sigma = measurements.sigma_s[measurements.valid]
+    planar_median_sigma_m = (
+        float(np.median(planar_sigma)) * speed_of_sound if planar_sigma.size else 0.0
+    )
 
     for receiver_subset in receiver_subsets:
         receiver_index = np.asarray(receiver_subset, dtype=int)
@@ -2144,6 +2460,8 @@ def calibrate_planar_tdoa_8mic(
                     offset_solution.offsets_m,
                     arrivals_m[np.ix_(receiver_index, complete_fitting)],
                     membership_tolerance=membership_tolerance,
+                    dimension=2,
+                    refine_rank=True,
                 )
             except ValueError:
                 rejections.append("planar_offset_expansion_failure")
@@ -2168,6 +2486,13 @@ def calibrate_planar_tdoa_8mic(
                 successful_ranges,
                 acceptance_rms_m=metric_acceptance_rms_m,
                 angle_constraint=local_angle_constraint,
+                # Flag metric uncertainty once conditioning amplifies the
+                # nominal range error beyond 10 percent of the scene scale.
+                weak_condition_threshold=min(
+                    1e8,
+                    float(np.median(successful_ranges))
+                    / max(10.0 * planar_median_sigma_m, np.finfo(float).eps),
+                ),
             )
             identifiability = metric.diagnostics.identifiability
             if angle_constraint is None and identifiability.continuous_metric_nullity > 0:
@@ -2192,13 +2517,15 @@ def calibrate_planar_tdoa_8mic(
             # noise the best-RMS branch is not always the completable one.
             # Completion gates scale with measurement noise and the caller's
             # metric acceptance instead of exact-arithmetic constants.
-            planar_sigma = measurements.sigma_s[measurements.valid]
-            planar_sigma = planar_sigma[np.isfinite(planar_sigma)]
-            planar_median_sigma_m = (
-                float(np.median(planar_sigma)) * speed_of_sound if planar_sigma.size else 0.0
-            )
             candidate = None
             metric_weak = metric.status == "weakly_identified"
+            structurally_weak = any(
+                reason in metric.diagnostics.reasons
+                for reason in (
+                    "ill_conditioned_planar_metric_design",
+                    "weak_planar_affine_rank_separation",
+                )
+            )
             for metric_candidate in metric.candidates:
                 excluded_valid = np.asarray(
                     [primitive_valid[excluded, event] for event in successful_events],
@@ -2210,9 +2537,9 @@ def calibrate_planar_tdoa_8mic(
                     arrivals_m[excluded, successful_events[excluded_valid]]
                     - successful_offsets[excluded_valid]
                 )
-                range_tolerance_m2 = (
-                    6.0 * planar_median_sigma_m * float(np.max(np.abs(excluded_ranges)))
-                ) ** 2
+                range_tolerance_m2 = squared_range_noise_tolerance(
+                    float(np.max(np.abs(excluded_ranges))), planar_median_sigma_m
+                )
                 try:
                     localized_receiver = localize_planar_receiver_from_ranges(
                         metric_candidate.source_projected_positions_m[excluded_valid],
@@ -2376,6 +2703,7 @@ def calibrate_planar_tdoa_8mic(
                     validation,
                     full_rms,
                     metric_weak,
+                    structurally_weak,
                 )
             )
 
@@ -2417,6 +2745,8 @@ def calibrate_planar_tdoa_8mic(
             ),
             continuous_ambiguity_dimension=continuous_ambiguity_dimension,
             continuous_ambiguity_nullspace=continuous_ambiguity_nullspace,
+            microphone_ids=measurements.microphone_ids,
+            angle_constraint=angle_constraint,
         )
 
     selected = min(
@@ -2434,16 +2764,16 @@ def calibrate_planar_tdoa_8mic(
         validation,
         full_rms,
         metric_weak,
+        structurally_weak,
     ) = selected
+    if structurally_weak:
+        rejections.append("ill_conditioned_planar_metric_design")
     status: CalibrationStatus = "weakly_identified" if metric_weak else "solved"
-    if metric_weak:
-        # Noisy planar polish (T-005). Algebraic completion lands cm-off
-        # under noise while the metric flags the branch weak; gauge-reduced
-        # Huber refinement finishes to mm level. Solved verdict only when
-        # the polished TDOA fit reaches the codebase noisy bar (60us);
-        # validation is intentionally left as selected (model-selection
-        # evidence must not shift under T-007's passing comparisons).
-        from .refinement import _refine_planar
+    if metric_weak or full_rms * speed_of_sound > 2e-5:
+        # Algebraic completion can be inaccurate even with a well-conditioned
+        # metric. Refine approximate fits before assessing their uncertainty.
+        # The stored validation score describes the pre-refinement selection.
+        from .refinement import polish_huber_then_wls
 
         tentative = PlanarCalibrationResult(
             status="solved",
@@ -2455,6 +2785,8 @@ def calibrate_planar_tdoa_8mic(
             event_ids=measurements.event_ids,
             validation=validation,
             tdoa_rms_s=full_rms,
+            microphone_ids=measurements.microphone_ids,
+            angle_constraint=angle_constraint,
             diagnostics=StratifiedCalibrationDiagnostics(
                 attempted_subsets=attempted,
                 generated_offset_roots=generated,
@@ -2468,17 +2800,20 @@ def calibrate_planar_tdoa_8mic(
                 rejection_reasons=tuple(rejections),
             ),
         )
-        polished_planar, planar_polish_diagnostics = _refine_planar(
+        polished_planar, planar_polish_diagnostics = polish_huber_then_wls(
             tentative,
             measurements,
             speed_of_sound=speed_of_sound,
-            mode="huber",
             max_nfev=500,
             improvement_tolerance=1e-10,
         )
         if (
             planar_polish_diagnostics.accepted
+            and isinstance(polished_planar, PlanarCalibrationResult)
             and polished_planar.microphone_positions_m is not None
+            and polished_planar.source_projected_positions_m is not None
+            and polished_planar.source_unsigned_heights_m is not None
+            and polished_planar.source_representative_positions_m is not None
             and polished_planar.tdoa_rms_s is not None
             and polished_planar.tdoa_rms_s <= 60e-6
         ):
@@ -2487,7 +2822,7 @@ def calibrate_planar_tdoa_8mic(
             heights = np.asarray(polished_planar.source_unsigned_heights_m)
             representative = np.asarray(polished_planar.source_representative_positions_m)
             full_rms = float(polished_planar.tdoa_rms_s)
-            status = "solved"
+            status = "weakly_identified" if structurally_weak else "solved"
     sign_known = np.zeros(len(heights), dtype=bool)
     arrays = [microphones, projected, heights, sign_known, representative]
     frozen: list[np.ndarray] = []
@@ -2495,7 +2830,7 @@ def calibrate_planar_tdoa_8mic(
         copy = np.array(array, copy=True)
         copy.setflags(write=False)
         frozen.append(copy)
-    return PlanarCalibrationResult(
+    result = PlanarCalibrationResult(
         status=status,
         microphone_positions_m=frozen[0],
         source_projected_positions_m=frozen[1],
@@ -2503,6 +2838,8 @@ def calibrate_planar_tdoa_8mic(
         source_height_sign_known=frozen[3],
         source_representative_positions_m=frozen[4],
         event_ids=measurements.event_ids,
+        microphone_ids=measurements.microphone_ids,
+        angle_constraint=angle_constraint,
         validation=validation,
         tdoa_rms_s=full_rms,
         diagnostics=StratifiedCalibrationDiagnostics(
@@ -2518,6 +2855,7 @@ def calibrate_planar_tdoa_8mic(
             rejection_reasons=tuple(rejections),
         ),
     )
+    return _assess_planar_noise_sensitivity(result, measurements, speed_of_sound)
 
 
 def compare_tdoa_models_8mic(
@@ -3043,7 +3381,7 @@ def calibrate_tdoa(
         )
         if item is not None
     )
-    return StratifiedCalibrationResult(
+    expanded_result = StratifiedCalibrationResult(
         status=core.status,
         microphone_positions_m=_restore_microphone_order(
             microphones,
@@ -3071,6 +3409,74 @@ def calibrate_tdoa(
         microphone_ids=original_microphone_ids,
     )
 
+    # Extra receivers constrain the shared geometry as well as their own positions.
+    # This final fit uses all events; it is not an independent validation score.
+    valid_sigma = input_measurements.sigma_s[input_measurements.valid]
+    if valid_sigma.size and float(np.median(valid_sigma)) * speed_of_sound > 5e-3:
+        from .refinement import refine_calibration
+
+        refined, refinement_diagnostics = refine_calibration(
+            expanded_result,
+            input_measurements,
+            speed_of_sound=speed_of_sound,
+            mode="huber",
+            max_nfev=500,
+        )
+        if refinement_diagnostics.accepted and isinstance(refined, StratifiedCalibrationResult):
+            return replace(refined, status=expanded_result.status)
+    return expanded_result
+
+
+def _apply_source_half_space_prior(
+    result: PlanarCalibrationResult,
+    source_half_space_sign: int | None,
+) -> PlanarCalibrationResult:
+    """Orient unsigned source heights onto an explicit half-space prior.
+
+    Reflecting a source through the microphone plane preserves every mic-source
+    range, so event signs are gauge without this prior. With an explicit sign
+    relative to the microphone-plane normal from `select_coordinate_gauge`, all
+    event signs become known and the constraint is recorded on the result.
+    """
+    if source_half_space_sign is None:
+        return result
+    if source_half_space_sign not in (-1, 1):
+        raise ValueError("source_half_space_sign must be -1, +1, or absent")
+    from ..geometry import select_coordinate_gauge
+
+    if (
+        result.microphone_positions_m is None
+        or result.source_representative_positions_m is None
+        or result.source_unsigned_heights_m is None
+        or not np.all(np.isfinite(result.microphone_positions_m))
+        or not np.all(np.isfinite(result.source_representative_positions_m))
+    ):
+        return result
+    microphones = np.asarray(result.microphone_positions_m, dtype=float)
+    gauge = select_coordinate_gauge(microphones)
+    if gauge.affine_rank != 2:
+        raise ValueError("source half-space prior requires a planar microphone geometry")
+    normal = gauge.basis[:, 2]
+    representative = np.array(result.source_representative_positions_m, copy=True)
+    signed = (representative - gauge.origin_m) @ normal
+    heights = np.asarray(result.source_unsigned_heights_m, dtype=float)
+    # Sources exactly on the plane cannot satisfy a strict half-space.
+    if np.any(np.abs(signed) <= 1e-12 * max(1.0, float(np.max(heights)))):
+        raise ValueError("source_half_space_sign requires sources strictly off the plane")
+    flip = signed * source_half_space_sign < 0.0
+    if np.any(flip):
+        representative[flip] -= 2.0 * signed[flip, None] * normal[None, :]
+    representative.setflags(write=False)
+    sign_known = np.ones(len(heights), dtype=bool)
+    sign_known.setflags(write=False)
+    return replace(
+        result,
+        source_representative_positions_m=representative,
+        source_height_sign_known=sign_known,
+        source_half_space_sign=int(source_half_space_sign),
+        source_region_constraint_enforced=True,
+    )
+
 
 def calibrate_planar_tdoa(
     measurements: EventTDOAMeasurements,
@@ -3082,11 +3488,15 @@ def calibrate_planar_tdoa(
     metric_acceptance_rms_m: float = 5e-3,
     extra_microphone_rms_m: float = 0.02,
     angle_constraint: PlanarAngleConstraint | None = None,
+    source_half_space_sign: int | None = None,
 ) -> PlanarCalibrationResult:
     """Calibrate an 8-or-more microphone planar array from reference-star TDOAs."""
+    if source_half_space_sign not in (None, -1, 1):
+        raise ValueError("source_half_space_sign must be -1, +1, or absent")
     microphone_count = len(measurements.microphone_ids)
     if microphone_count < 8:
         raise ValueError("calibrate_planar_tdoa requires at least eight microphones")
+    input_measurements = measurements
     original_microphone_ids = measurements.microphone_ids
     original_angle_constraint = angle_constraint
     required_ids = (
@@ -3101,6 +3511,7 @@ def calibrate_planar_tdoa(
     measurements, internal_to_input = _normalize_reference_star_measurements(
         measurements,
         required_microphone_ids=required_ids,
+        diverse_planar_seed=True,
     )
     if angle_constraint is not None:
         id_to_input = {
@@ -3134,7 +3545,7 @@ def calibrate_planar_tdoa(
         angle_constraint=angle_constraint,
     )
     if microphone_count == 8 or core.microphone_positions_m is None:
-        return replace(
+        restored = replace(
             core,
             microphone_positions_m=_restore_microphone_order(
                 core.microphone_positions_m,
@@ -3143,6 +3554,7 @@ def calibrate_planar_tdoa(
             microphone_ids=original_microphone_ids,
             angle_constraint=original_angle_constraint,
         )
+        return _apply_source_half_space_prior(restored, source_half_space_sign)
     if (
         core.source_projected_positions_m is None
         or core.source_unsigned_heights_m is None
@@ -3218,6 +3630,10 @@ def calibrate_planar_tdoa(
                 projected[valid],
                 heights[valid],
                 absolute_ranges,
+                range_tolerance_m2=squared_range_noise_tolerance(
+                    float(np.max(np.abs(absolute_ranges))),
+                    float(np.median(measurements.sigma_s[valid, column])) * speed_of_sound,
+                ),
             )
         except ValueError:
             return PlanarCalibrationResult(
@@ -3301,7 +3717,7 @@ def calibrate_planar_tdoa(
     residual = predicted[valid] - measurements.tdoa_s[valid]
     rms = float(np.sqrt(np.mean(residual * residual)))
     microphones.setflags(write=False)
-    return PlanarCalibrationResult(
+    result = PlanarCalibrationResult(
         status=core.status,
         microphone_positions_m=_restore_microphone_order(
             microphones,
@@ -3332,4 +3748,31 @@ def calibrate_planar_tdoa(
         ),
         microphone_ids=original_microphone_ids,
         angle_constraint=original_angle_constraint,
+    )
+    # Extra receivers constrain the shared planar geometry as well as their own
+    # positions. Joint Huber-then-WLS polish before the sensitivity gate so
+    # completion residuals do not inflate chi-square into a false weak verdict.
+    if result.status == "solved" and microphone_count > 8:
+        from .refinement import polish_huber_then_wls
+
+        polished_planar, polish_diagnostics = polish_huber_then_wls(
+            result,
+            input_measurements,
+            speed_of_sound=speed_of_sound,
+        )
+        if (
+            polish_diagnostics.accepted
+            and isinstance(polished_planar, PlanarCalibrationResult)
+            and polished_planar.microphone_positions_m is not None
+            and polished_planar.source_projected_positions_m is not None
+            and polished_planar.source_unsigned_heights_m is not None
+            and polished_planar.source_representative_positions_m is not None
+            and polished_planar.tdoa_rms_s is not None
+            and (result.tdoa_rms_s is None or polished_planar.tdoa_rms_s <= result.tdoa_rms_s)
+        ):
+            result = polished_planar
+    return _assess_planar_noise_sensitivity(
+        _apply_source_half_space_prior(result, source_half_space_sign),
+        input_measurements,
+        speed_of_sound,
     )

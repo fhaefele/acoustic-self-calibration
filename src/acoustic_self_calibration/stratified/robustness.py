@@ -79,6 +79,23 @@ def whiten_residual_block(
         raise ValueError("covariance_s2 must be square and match residual_s")
     if not np.all(np.isfinite(residual)) or not np.all(np.isfinite(covariance)):
         raise ValueError("whitening inputs must be finite")
+    return (
+        covariance_whitener(covariance, relative_eigenvalue_floor=relative_eigenvalue_floor)
+        @ residual
+    )
+
+
+def covariance_whitener(
+    covariance_s2: np.ndarray,
+    *,
+    relative_eigenvalue_floor: float = 1e-10,
+) -> np.ndarray:
+    """Build a reusable transform onto the supported covariance subspace."""
+    covariance = np.asarray(covariance_s2, dtype=float)
+    if covariance.ndim != 2 or covariance.shape[0] != covariance.shape[1]:
+        raise ValueError("covariance_s2 must be square")
+    if not np.all(np.isfinite(covariance)):
+        raise ValueError("whitening inputs must be finite")
     if relative_eigenvalue_floor <= 0.0:
         raise ValueError("relative_eigenvalue_floor must be positive")
     eigenvalues, eigenvectors = np.linalg.eigh(covariance)
@@ -88,8 +105,7 @@ def whiten_residual_block(
     keep = eigenvalues > relative_eigenvalue_floor * maximum
     if not np.any(keep):
         raise ValueError("covariance supported subspace is empty")
-    projected = eigenvectors[:, keep].T @ residual
-    return projected / np.sqrt(eigenvalues[keep])
+    return eigenvectors[:, keep].T / np.sqrt(eigenvalues[keep])[:, None]
 
 
 def conditional_covariance(

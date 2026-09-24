@@ -1,7 +1,7 @@
 import numpy as np
 
 from acoustic_self_calibration.simulation import make_random_3d_pulse_scene
-from acoustic_self_calibration.stratified.offsets_minimal import solve_offsets_7r6s
+from acoustic_self_calibration.stratified.offsets_minimal import _halton_starts, solve_offsets_7r6s
 
 
 def _fixture(event_count: int):
@@ -60,3 +60,17 @@ def test_7r6s_finds_physical_exact_root_on_40_event_fixture() -> None:
     assert best.jacobian_rank == 6
     assert best.all_minor_max_abs < 1e-7
     assert result.diagnostics.verified_root_count == len(result.roots)
+
+
+def test_halton_starts_are_prefix_stable() -> None:
+    arrivals, _ = _fixture(20)
+    for physical_only in (True, False):
+        counts = (8, 24, 33, 64, 100)
+        starts = [
+            _halton_starts(arrivals, start_count=count, physical_only=physical_only)[0]
+            for count in counts
+        ]
+        for index, count in enumerate(counts):
+            assert starts[index].shape[0] == count
+        for small, large in zip(starts, starts[1:], strict=False):
+            assert np.allclose(small, large[: small.shape[0]], atol=1e-12, rtol=1e-12)

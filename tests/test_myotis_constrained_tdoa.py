@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import numpy as np
 
 from acoustic_self_calibration.measurements import EventTDOAMeasurements
@@ -7,7 +9,11 @@ from acoustic_self_calibration.simulation import (
     myotis_cross_source_positions,
 )
 from acoustic_self_calibration.stratified.constraints import PlanarAngleConstraint
-from acoustic_self_calibration.stratified.solver import calibrate_planar_tdoa
+from acoustic_self_calibration.stratified.solver import (
+    _normalize_reference_star_measurements,
+    _split_events,
+    calibrate_planar_tdoa,
+)
 
 
 def _measurements() -> tuple[np.ndarray, np.ndarray, EventTDOAMeasurements]:
@@ -141,3 +147,21 @@ def test_constraint_receiver_outside_initial_seed_order_is_supported() -> None:
         axis=2,
     )
     assert np.allclose(estimated_distances, true_distances, atol=1e-6, rtol=1e-6)
+
+
+def test_planar_seed_diversity_does_not_use_validation_arrivals() -> None:
+    _, _, measurements = _measurements()
+    _, validation = _split_events(len(measurements.event_ids))
+    corrupted = measurements.tdoa_s.copy()
+    corrupted[np.asarray(validation)] += np.random.default_rng(183).normal(
+        scale=0.01, size=(len(validation), corrupted.shape[1])
+    )
+    changed = replace(measurements, tdoa_s=corrupted)
+    _, original_order = _normalize_reference_star_measurements(
+        measurements, required_microphone_ids=(3, 0, 7), diverse_planar_seed=True
+    )
+    _, changed_order = _normalize_reference_star_measurements(
+        changed, required_microphone_ids=(3, 0, 7), diverse_planar_seed=True
+    )
+    assert original_order == changed_order
+    assert {3, 0, 7}.issubset(original_order[:8])

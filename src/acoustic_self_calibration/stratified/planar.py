@@ -70,7 +70,15 @@ def _solve_planar_metric_linear(
     if np.any(column_scales <= floor):
         return np.zeros(5), np.zeros(0), 0, float("inf")
     normalized = design / column_scales[None, :]
-    solution_scaled, _, _, _ = np.linalg.lstsq(normalized, rhs, rcond=None)
+    if angle_constraint is None:
+        solution_scaled, _, _, _ = np.linalg.lstsq(normalized, rhs, rcond=None)
+    else:
+        # The supplied angle is exact. Appending it as an ordinary least-
+        # squares row would let noisy ranges change the physical constraint.
+        _, _, vt = np.linalg.svd(normalized[-1:], full_matrices=True)
+        nullspace = vt[1:].T
+        reduced, _, _, _ = np.linalg.lstsq(normalized[:-1] @ nullspace, rhs[:-1], rcond=None)
+        solution_scaled = nullspace @ reduced
     solution = solution_scaled / column_scales
     singular = np.linalg.svd(normalized, compute_uv=False)
     tolerance = (
@@ -429,6 +437,20 @@ def localize_planar_source_from_tdoa(
     )
 
 
+def squared_range_noise_tolerance(
+    max_range_m: float,
+    sigma_range_m: float,
+    *,
+    multiplier: float = 6.0,
+) -> float:
+    """Convert a range uncertainty in metres to a squared-range allowance in m²."""
+    values = np.asarray([max_range_m, sigma_range_m, multiplier], dtype=float)
+    if not np.all(np.isfinite(values)) or np.any(values < 0.0):
+        raise ValueError("range, sigma, and multiplier must be finite and nonnegative")
+    uncertainty_m = multiplier * sigma_range_m
+    return float(2.0 * max_range_m * uncertainty_m + uncertainty_m**2)
+
+
 def localize_planar_receiver_from_ranges(
     source_projected_positions_m: np.ndarray,
     source_unsigned_heights_m: np.ndarray,
@@ -446,16 +468,19 @@ def localize_planar_receiver_from_ranges(
         raise ValueError("height/range arrays must match source count")
     if len(projected) < 3:
         raise ValueError("at least three sources are required for planar receiver localization")
-    if range_tolerance_m2 < 0.0:
-        raise ValueError("range_tolerance_m2 must be nonnegative")
+    if not np.all(np.isfinite(projected)) or not np.all(np.isfinite(heights)):
+        raise ValueError("source observables must be finite")
+    if np.any(heights < 0.0):
+        raise ValueError("unsigned source heights must be nonnegative")
+    if not np.all(np.isfinite(ranges)) or np.any(ranges < 0.0):
+        raise ValueError("ranges must be finite and nonnegative")
+    if not np.isfinite(range_tolerance_m2) or range_tolerance_m2 < 0.0:
+        raise ValueError("range_tolerance_m2 must be finite and nonnegative")
     planar_squared = ranges * ranges - heights * heights
     tolerance = 1e-9 * max(1.0, float(np.max(ranges * ranges))) + range_tolerance_m2
     if np.min(planar_squared) < -tolerance:
         raise ValueError("ranges are incompatible with unsigned source heights")
-    planar_ranges = np.sqrt(np.maximum(planar_squared, 0.0))
-
     reference = projected[0]
-    reference_range = float(planar_ranges[0])
     design = []
     rhs = []
     for event in range(1, len(projected)):
@@ -465,7 +490,7 @@ def localize_planar_receiver_from_ranges(
             float(
                 np.dot(source, source)
                 - np.dot(reference, reference)
-                - (planar_ranges[event] ** 2 - reference_range**2)
+                - (planar_squared[event] - planar_squared[0])
             )
         )
     matrix = np.asarray(design, dtype=float)

@@ -42,6 +42,7 @@ from .factorization import AffineFactorization
 from .notation import cross_gram_from_ranges
 
 MetricUpgradeStatus = Literal["solved", "weakly_identified", "degenerate", "failed"]
+_METRIC_HALTON_POOL = 256
 
 
 @dataclass(frozen=True)
@@ -518,6 +519,26 @@ def upgrade_metric_3d(
     )
 
 
+def _metric_nullspace_starts(nullity: int, start_count: int) -> np.ndarray:
+    """Prefix-stable multistart free-variable seeds for nullity > 0."""
+    if start_count < 1:
+        raise ValueError("start_count must be positive")
+    if nullity == 0:
+        return np.zeros((start_count, 0), dtype=float)
+    mixed_count = 5
+    points = qmc.Halton(d=nullity, scramble=False).random(mixed_count)
+    starts_list: list[np.ndarray] = [np.zeros(nullity, dtype=float)]
+    for amplitude in (4.0, 6.0):
+        starts_list.extend(amplitude * (point - 0.5) for point in points)
+    if len(starts_list) < start_count:
+        needed = start_count - len(starts_list)
+        pool_count = max(_METRIC_HALTON_POOL, needed)
+        pool = qmc.Halton(d=nullity, scramble=False).random(pool_count)
+        for index in range(needed):
+            starts_list.append(16.0 * (pool[index] - 0.5))
+    return np.asarray(starts_list[:start_count], dtype=float)
+
+
 def upgrade_metric_3d_overdetermined(
     factorization: AffineFactorization,
     corrected_ranges_m: np.ndarray,
@@ -614,19 +635,7 @@ def upgrade_metric_3d_overdetermined(
     if nullity == 0:
         starts = np.zeros((1, 0), dtype=float)
     else:
-        mixed_count = max(1, min(5, (start_count - 1) // 2))
-        points = qmc.Halton(d=nullity, scramble=False).random(mixed_count)
-        starts_list: list[np.ndarray] = [np.zeros(nullity, dtype=float)]
-        for amplitude in (4.0, 6.0):
-            starts_list.extend(amplitude * (point - 0.5) for point in points)
-        if len(starts_list) < start_count:
-            spread_pool = qmc.Halton(d=nullity, scramble=False).random(4 * start_count)
-            spread_indices = np.linspace(0, len(spread_pool) - 1, start_count, dtype=int)
-            for index in spread_indices:
-                starts_list.append(16.0 * (spread_pool[index] - 0.5))
-                if len(starts_list) >= start_count:
-                    break
-        starts = np.asarray(starts_list[:start_count], dtype=float)
+        starts = _metric_nullspace_starts(nullity, start_count)
 
     candidates: list[MetricUpgradeCandidate] = []
     free_solutions: list[np.ndarray] = []

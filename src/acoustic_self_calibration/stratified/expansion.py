@@ -6,7 +6,7 @@ from itertools import combinations
 import numpy as np
 from scipy.optimize import least_squares
 
-from .notation import compaction_matrix, corrected_ranges_from_offsets
+from .notation import compacted_rank_matrix, compaction_matrix, corrected_ranges_from_offsets
 
 
 @dataclass(frozen=True)
@@ -17,6 +17,7 @@ class OffsetExpansionResult:
     left_nullity: int
     membership_rms: np.ndarray
     success: np.ndarray
+    rank_refinement_nfev: int = 0
 
 
 @dataclass(frozen=True)
@@ -42,6 +43,8 @@ def extend_event_offsets(
     target_relative_arrivals_m: np.ndarray,
     *,
     membership_tolerance: float = 1e-7,
+    dimension: int | None = None,
+    refine_rank: bool = False,
 ) -> OffsetExpansionResult:
     """Extend event offsets using the receiver-differenced squared-range column space."""
     seed_arrivals = np.asarray(seed_relative_arrivals_m, dtype=float)
@@ -59,6 +62,10 @@ def extend_event_offsets(
         raise ValueError("seed_offsets_m must be finite")
     if membership_tolerance <= 0.0:
         raise ValueError("membership_tolerance must be positive")
+    if dimension is not None and dimension not in (2, 3):
+        raise ValueError("dimension must be 2 or 3")
+    if refine_rank and dimension is None:
+        raise ValueError("rank refinement requires an explicit dimension")
 
     corrected_seed = corrected_ranges_from_offsets(seed_arrivals, seed_offsets)
     receiver_compaction = compaction_matrix(seed_arrivals.shape[0])
@@ -69,7 +76,12 @@ def extend_event_offsets(
         if singular_values.size
         else 0.0
     )
+    # Receiver-differenced squared ranges have rank at most dimension + 1.
+    # Noise and accumulated rounding must not consume the nullspace needed
+    # for completion. Membership is still checked against the original data.
     rank = int(np.sum(singular_values > tolerance))
+    if dimension is not None:
+        rank = min(rank, dimension + 1)
     left_null = u[:, rank:]
     if left_null.shape[1] == 0:
         raise ValueError("seed squared-range columns leave no offset-membership constraint")
@@ -106,6 +118,49 @@ def extend_event_offsets(
         membership_rms[event] = rms
         success[event] = True
 
+    refinement_nfev = 0
+    if refine_rank and dimension is not None and np.count_nonzero(success) >= dimension + 3:
+        indices = np.flatnonzero(success)
+        relative = target_arrivals[:, indices]
+        scale = max(float(np.max(np.abs(relative))), np.finfo(float).eps)
+
+        def rank_residual(values: np.ndarray) -> np.ndarray:
+            matrix = compacted_rank_matrix(relative / scale, values)
+            left, singular, right = np.linalg.svd(matrix, full_matrices=False)
+            return ((left[:, dimension:] * singular[dimension:]) @ right[dimension:]).ravel()
+
+        initial = offsets[indices] / scale
+        initial_residual = rank_residual(initial)
+        if np.linalg.norm(initial_residual) > 1e-8:
+            optimized = least_squares(
+                rank_residual,
+                initial,
+                bounds=(-np.inf, np.min(relative / scale, axis=0)),
+                max_nfev=300,
+                ftol=1e-12,
+                xtol=1e-12,
+                gtol=1e-12,
+            )
+            refinement_nfev = optimized.nfev
+            if np.linalg.norm(optimized.fun) < np.linalg.norm(initial_residual):
+                offsets[indices] = optimized.x * scale
+                corrected[:, indices] = relative - offsets[indices]
+                columns = receiver_compaction.T @ corrected[:, indices] ** 2
+                left, _, _ = np.linalg.svd(columns, full_matrices=True)
+                nullspace = left[:, dimension + 1 :]
+                for index in indices:
+                    quadratic = receiver_compaction.T @ target_arrivals[:, index] ** 2
+                    linear = receiver_compaction.T @ target_arrivals[:, index]
+                    residual = nullspace.T @ (quadratic - 2.0 * linear * offsets[index])
+                    denominator = max(
+                        1.0, float(np.linalg.norm(quadratic)), float(np.linalg.norm(linear))
+                    )
+                    membership_rms[index] = float(np.sqrt(np.mean(residual**2))) / denominator
+                    success[index] = membership_rms[index] <= membership_tolerance
+                    if not success[index]:
+                        offsets[index] = np.nan
+                        corrected[:, index] = np.nan
+
     offsets.setflags(write=False)
     corrected.setflags(write=False)
     membership_rms.setflags(write=False)
@@ -117,6 +172,7 @@ def extend_event_offsets(
         left_nullity=int(left_null.shape[1]),
         membership_rms=membership_rms,
         success=success,
+        rank_refinement_nfev=refinement_nfev,
     )
 
 

@@ -110,6 +110,36 @@ def _finite_difference_jacobian(
     return jacobian
 
 
+_HALTON_POOL_SIZE = 4096
+_HALTON_STRIDE = 8
+_HALTON_STRIDE_PREFIX = 32
+_HALTON_DENSE_FROM = 20
+
+
+def _halton_indices(start_count: int) -> np.ndarray:
+    """Prefix-stable Halton sample indices for multistart root search.
+
+    The first ``_HALTON_STRIDE_PREFIX`` starts take a fixed stride over the
+    pool (diversity for metric/gate completion). Further starts fill dense
+    integers above ``_HALTON_DENSE_FROM`` so low-index physical basins stay
+    reachable at larger budgets without depending on ``start_count``.
+    """
+    if start_count < 1:
+        raise ValueError("start_count must be positive")
+    stride_prefix = min(start_count, _HALTON_STRIDE_PREFIX)
+    indices = np.arange(stride_prefix, dtype=int) * _HALTON_STRIDE
+    if start_count > _HALTON_STRIDE_PREFIX:
+        taken = set(int(i) for i in indices)
+        dense: list[int] = []
+        candidate = _HALTON_DENSE_FROM
+        while len(dense) < start_count - _HALTON_STRIDE_PREFIX:
+            if candidate not in taken:
+                dense.append(candidate)
+            candidate += 1
+        indices = np.concatenate([indices, np.asarray(dense, dtype=int)])
+    return indices
+
+
 def _halton_starts(
     arrivals: np.ndarray,
     *,
@@ -118,20 +148,17 @@ def _halton_starts(
 ) -> tuple[np.ndarray, np.ndarray | None, np.ndarray | None]:
     scale = _measurement_scale(arrivals)
     minimum = np.min(arrivals, axis=0)
-    pool_count = max(start_count, 8 * start_count)
+    indices = _halton_indices(start_count)
+    pool_count = max(_HALTON_POOL_SIZE, int(indices.max()) + 1)
     pool = qmc.Halton(d=EVENT_COUNT, scramble=False).random(pool_count)
-    indices = np.linspace(0, pool_count - 1, start_count, dtype=int)
-    if start_count >= 2:
-        indices[-2] = pool_count - 2
     points = pool[indices]
     logarithmic = np.exp(np.log(0.08) + (np.log(30.0) - np.log(0.08)) * points)
     if physical_only:
         starts = minimum[None, :] - scale * logarithmic
 
         # Physical event offsets are -d(reference, source). Keep a small family of
-        # common-range starts, but spread the remaining fixed budget across a much
-        # longer deterministic Halton prefix so later physical basins are sampled
-        # without increasing the caller's start count.
+        # common-range starts; remaining starts take fixed Halton indices so
+        # larger start budgets stay prefix-stable relative to smaller ones.
         correlated_count = min(start_count, 2)
         correlated_radii = np.geomspace(0.75, 4.5, correlated_count)
         starts[:correlated_count] = minimum[None, :] - scale * correlated_radii[:, None]
@@ -141,10 +168,8 @@ def _halton_starts(
         return starts, lower, upper
 
     signed = 2.0 * points - 1.0
-    radii = np.exp(
-        np.log(0.1)
-        + (np.log(40.0) - np.log(0.1)) * qmc.Halton(d=1, scramble=False).random(start_count)[:, 0]
-    )
+    radius_points = qmc.Halton(d=1, scramble=False).random(pool_count)
+    radii = np.exp(np.log(0.1) + (np.log(40.0) - np.log(0.1)) * radius_points[indices, 0])
     starts = minimum[None, :] + scale * signed * radii[:, None]
     return starts, None, None
 
@@ -195,7 +220,7 @@ def solve_offsets_7r6s(
             arrivals,
             offsets,
             scale,
-            primary_only=True,
+            primary_only=False,
         )
 
     for start_index, initial in enumerate(starts):

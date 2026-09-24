@@ -8,7 +8,8 @@ from scipy.optimize import least_squares
 
 from ..geometry import select_coordinate_gauge
 from ..measurements import EventTDOAMeasurements
-from .robustness import huber_loss, whiten_residual_block
+from .identifiability import PlanarNoiseSensitivity, planar_noise_sensitivity
+from .robustness import covariance_whitener, huber_loss
 from .solver import PlanarCalibrationResult, StratifiedCalibrationResult
 
 RefinementKind = Literal["wls", "huber"]
@@ -52,32 +53,73 @@ def _predict_tdoa(
     return predicted
 
 
-def _normalized_residuals(
-    microphones: np.ndarray,
-    sources: np.ndarray,
-    measurements: EventTDOAMeasurements,
-    speed_of_sound: float,
-) -> np.ndarray:
-    predicted = _predict_tdoa(
-        microphones,
-        sources,
-        measurements,
-        speed_of_sound,
-    )
-    blocks: list[np.ndarray] = []
-    for event in range(len(measurements.event_ids)):
-        indices = np.flatnonzero(measurements.valid[event])
-        if indices.size == 0:
-            continue
-        residual = predicted[event, indices] - measurements.tdoa_s[event, indices]
-        if measurements.covariance_s2 is None:
-            blocks.append(residual / measurements.sigma_s[event, indices])
-        else:
-            covariance = measurements.covariance_s2[event][np.ix_(indices, indices)]
-            blocks.append(whiten_residual_block(residual, covariance))
-    if not blocks:
-        raise ValueError("refinement requires at least one valid TDOA coordinate")
-    return np.concatenate(blocks)
+class _MeasurementObjective:
+    """Fixed measurement weighting shared by planar and spatial refinement."""
+
+    def __init__(self, measurements: EventTDOAMeasurements, speed_of_sound: float) -> None:
+        self.measurements = measurements
+        self.speed_of_sound = speed_of_sound
+        id_to_index = {value: index for index, value in enumerate(measurements.microphone_ids)}
+        self.pairs = np.asarray(
+            [(id_to_index[a], id_to_index[b]) for a, b in measurements.microphone_pairs]
+        )
+        self.blocks: list[tuple[int, np.ndarray, np.ndarray]] = []
+        for event in range(len(measurements.event_ids)):
+            indices = np.flatnonzero(measurements.valid[event])
+            if indices.size == 0:
+                continue
+            if measurements.covariance_s2 is None:
+                whitening = np.diag(1.0 / measurements.sigma_s[event, indices])
+            else:
+                covariance = measurements.covariance_s2[event][np.ix_(indices, indices)]
+                whitening = covariance_whitener(covariance)
+            self.blocks.append((event, indices, whitening))
+        if not self.blocks:
+            raise ValueError("refinement requires at least one valid TDOA coordinate")
+
+    def residual(self, microphones: np.ndarray, sources: np.ndarray) -> np.ndarray:
+        predicted = _predict_tdoa(microphones, sources, self.measurements, self.speed_of_sound)
+        return np.concatenate(
+            [
+                whitening @ (predicted[event, indices] - self.measurements.tdoa_s[event, indices])
+                for event, indices, whitening in self.blocks
+            ]
+        )
+
+    def jacobian(
+        self,
+        microphones: np.ndarray,
+        sources: np.ndarray,
+        free_microphone_indices: np.ndarray,
+        *,
+        microphone_dimension: int = 3,
+    ) -> np.ndarray:
+        difference = microphones[None, :, :] - sources[:, None, :]
+        ranges = np.linalg.norm(difference, axis=2)
+        direction = difference / np.maximum(ranges[:, :, None], np.finfo(float).tiny)
+        direction /= self.speed_of_sound
+        microphone_columns = len(free_microphone_indices)
+        blocks = []
+        for event, indices, whitening in self.blocks:
+            pairs = self.pairs[indices]
+            rows = np.arange(len(indices))
+            microphone_jacobian = np.zeros((len(indices), len(microphones), microphone_dimension))
+            microphone_jacobian[rows, pairs[:, 0]] -= direction[
+                event, pairs[:, 0], :microphone_dimension
+            ]
+            microphone_jacobian[rows, pairs[:, 1]] += direction[
+                event, pairs[:, 1], :microphone_dimension
+            ]
+            block = np.zeros((len(indices), microphone_columns + sources.size))
+            block[:, :microphone_columns] = microphone_jacobian.reshape(len(indices), -1)[
+                :, free_microphone_indices
+            ]
+            source_column = microphone_columns + 3 * event
+            block[:, source_column : source_column + 3] = (
+                direction[event, pairs[:, 0]] - direction[event, pairs[:, 1]]
+            )
+            blocks.append(whitening @ block)
+        return np.vstack(blocks)
 
 
 def _raw_tdoa_rms(
@@ -227,14 +269,13 @@ def _refine_3d(
         refined_sources = vector[source_offset:].reshape(canonical_sources.shape)
         return mics, refined_sources
 
+    objective = _MeasurementObjective(measurements, speed_of_sound)
+
     def residual(vector: np.ndarray) -> np.ndarray:
-        mics, source_states = unpack(vector)
-        return _normalized_residuals(
-            mics,
-            source_states,
-            measurements,
-            speed_of_sound,
-        )
+        return objective.residual(*unpack(vector))
+
+    def jacobian(vector: np.ndarray) -> np.ndarray:
+        return objective.jacobian(*unpack(vector), free_microphone_indices)
 
     initial_residual = residual(initial_vector)
     initial_rms = _raw_tdoa_rms(
@@ -246,6 +287,7 @@ def _refine_3d(
     optimized = least_squares(
         residual,
         initial_vector,
+        jac=jacobian,
         loss="linear" if mode == "wls" else "huber",
         f_scale=1.5,
         max_nfev=max_nfev,
@@ -416,14 +458,13 @@ def _refine_planar(
         refined_mics = np.column_stack([refined_xy, np.zeros(len(refined_xy))])
         return refined_mics, refined_sources
 
+    objective = _MeasurementObjective(measurements, speed_of_sound)
+
     def residual(vector: np.ndarray) -> np.ndarray:
-        mics, source_values = unpack(vector)
-        return _normalized_residuals(
-            mics,
-            source_values,
-            measurements,
-            speed_of_sound,
-        )
+        return objective.residual(*unpack(vector))
+
+    def jacobian(vector: np.ndarray) -> np.ndarray:
+        return objective.jacobian(*unpack(vector), free_microphone_indices, microphone_dimension=2)
 
     initial_residual = residual(initial_vector)
     initial_mics_c, initial_sources_c = unpack(initial_vector)
@@ -436,6 +477,7 @@ def _refine_planar(
     optimized = least_squares(
         residual,
         initial_vector,
+        jac=jacobian,
         bounds=(lower, upper),
         loss="linear" if mode == "wls" else "huber",
         f_scale=1.5,
@@ -504,6 +546,51 @@ def _refine_planar(
     ), diagnostics
 
 
+def polish_huber_then_wls(
+    calibration: StratifiedCalibrationResult | PlanarCalibrationResult,
+    measurements: EventTDOAMeasurements,
+    *,
+    speed_of_sound: float,
+    max_nfev: int = 500,
+    improvement_tolerance: float = 1e-10,
+) -> tuple[
+    StratifiedCalibrationResult | PlanarCalibrationResult,
+    RefinementDiagnostics,
+]:
+    """Huber for basin entry, then WLS so Gaussian goodness-of-fit stays calibrated.
+
+    Huber does not minimize chi-square; assessing fit p-values at a Huber solution
+    systematically rejects correct geometry. A linear-loss pass from the robust
+    basin restores the chi-square optimum without changing the selected class.
+    """
+    polished, diagnostics = refine_calibration(
+        calibration,
+        measurements,
+        speed_of_sound=speed_of_sound,
+        mode="huber",
+        max_nfev=max_nfev,
+        improvement_tolerance=improvement_tolerance,
+    )
+    if not diagnostics.accepted:
+        return polished, diagnostics
+    # tolerance 0: tiny residuals make any positive required decrease impossible.
+    linear, linear_diagnostics = refine_calibration(
+        polished,
+        measurements,
+        speed_of_sound=speed_of_sound,
+        mode="wls",
+        max_nfev=max_nfev,
+        improvement_tolerance=0.0,
+    )
+    if not linear_diagnostics.accepted:
+        return polished, diagnostics
+    linear_rms = linear.tdoa_rms_s
+    robust_rms = polished.tdoa_rms_s
+    if linear_rms is not None and robust_rms is not None and linear_rms > robust_rms:
+        return polished, diagnostics
+    return linear, linear_diagnostics
+
+
 def refine_calibration(
     calibration: StratifiedCalibrationResult | PlanarCalibrationResult,
     measurements: EventTDOAMeasurements,
@@ -556,4 +643,35 @@ def refine_calibration(
         mode=mode,
         max_nfev=max_nfev,
         improvement_tolerance=improvement_tolerance,
+    )
+
+
+def estimate_planar_noise_sensitivity(
+    microphones: np.ndarray,
+    sources: np.ndarray,
+    measurements: EventTDOAMeasurements,
+    *,
+    speed_of_sound: float = 343.0,
+) -> PlanarNoiseSensitivity:
+    """Estimate unconstrained microphone uncertainty at a fitted planar geometry.
+
+    Geometry order must match the measurement microphone/event identifiers.
+    Known angle constraints are not represented by this diagnostic.
+    """
+    gauge = select_coordinate_gauge(microphones)
+    if gauge.affine_rank != 2:
+        raise ValueError("receiver geometry must be planar")
+    canonical_mics = (microphones - gauge.origin_m) @ gauge.basis
+    canonical_sources = (sources - gauge.origin_m) @ gauge.basis
+    objective = _MeasurementObjective(measurements, speed_of_sound)
+    jacobian = objective.jacobian(
+        canonical_mics,
+        canonical_sources,
+        np.arange(2 * len(microphones)),
+        microphone_dimension=2,
+    )
+    return planar_noise_sensitivity(
+        jacobian,
+        canonical_mics[:, :2],
+        whitened_residual=objective.residual(canonical_mics, canonical_sources),
     )

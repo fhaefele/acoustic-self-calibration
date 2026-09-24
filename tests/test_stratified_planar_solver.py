@@ -84,3 +84,44 @@ def test_planar_tdoa_gate_seeded_noise() -> None:
     assert np.sqrt(np.mean((estimated_distances - true_distances) ** 2)) < 0.05
     assert result.tdoa_rms_s is not None
     assert result.tdoa_rms_s < 60e-6
+
+
+def test_planar_half_space_prior_orients_and_reports_signs() -> None:
+    from acoustic_self_calibration.geometry import select_coordinate_gauge
+    from acoustic_self_calibration.stratified.solver import calibrate_planar_tdoa
+
+    _, _, measurements = _measurements(20)
+    blind = calibrate_planar_tdoa(measurements)
+    signed = calibrate_planar_tdoa(measurements, source_half_space_sign=1)
+
+    assert blind.source_height_sign_known is not None
+    assert not np.any(blind.source_height_sign_known)
+    assert not blind.source_region_constraint_enforced
+
+    assert signed.status == "solved", signed.diagnostics
+    assert signed.source_region_constraint_enforced
+    assert signed.source_half_space_sign == 1
+    assert signed.source_height_sign_known is not None
+    assert np.all(signed.source_height_sign_known)
+    assert signed.microphone_positions_m is not None
+    assert signed.source_representative_positions_m is not None
+
+    gauge = select_coordinate_gauge(np.asarray(signed.microphone_positions_m))
+    signed_heights = (
+        np.asarray(signed.source_representative_positions_m) - gauge.origin_m
+    ) @ gauge.basis[:, 2]
+    assert np.all(signed_heights > 0.0)
+
+    # Prior is orientation only: mic geometry and unsigned heights unchanged.
+    assert np.allclose(
+        signed.microphone_positions_m,
+        blind.microphone_positions_m,
+        atol=1e-9,
+        rtol=1e-9,
+    )
+    assert np.allclose(
+        signed.source_unsigned_heights_m,
+        blind.source_unsigned_heights_m,
+        atol=1e-9,
+        rtol=1e-9,
+    )

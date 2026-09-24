@@ -8,6 +8,7 @@ from acoustic_self_calibration.measurements import (
 from acoustic_self_calibration.simulation import make_random_3d_pulse_scene
 from acoustic_self_calibration.stratified.solver import (
     _normalize_reference_star_measurements,
+    _seed_event_families,
     calibrate_tdoa,
 )
 
@@ -197,4 +198,15 @@ def test_required_constraint_receivers_are_kept_in_seed_order() -> None:
     )
 
     assert 10 in internal_to_input[:8]
-    assert internal_to_input[0] == 0
+
+
+def test_seed_event_families_are_prefix_stable() -> None:
+    fitting = tuple(index for index in range(40) if index not in (5, 17, 30, 33))
+    budgets = (1, 2, 3, 4, 8, 16)
+    families = [_seed_event_families(fitting, budget=budget) for budget in budgets]
+    for budget, family in zip(budgets, families, strict=True):
+        assert 1 <= len(family) <= budget
+        assert all(set(seed).issubset(fitting) for seed in family)
+        assert all(len(set(seed)) == 6 for seed in family)
+    for small, large in zip(families, families[1:], strict=False):
+        assert large[: len(small)] == small

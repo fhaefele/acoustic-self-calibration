@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from acoustic_self_calibration.simulation import (
     myotis_cross_microphones,
@@ -10,7 +11,35 @@ from acoustic_self_calibration.stratified.factorization import factor_corrected_
 from acoustic_self_calibration.stratified.identifiability import (
     diagnose_planar_identifiability,
 )
-from acoustic_self_calibration.stratified.planar import upgrade_metric_planar
+from acoustic_self_calibration.stratified.planar import (
+    localize_planar_receiver_from_ranges,
+    squared_range_noise_tolerance,
+    upgrade_metric_planar,
+)
+
+
+def test_planar_receiver_preserves_noisy_squared_ranges() -> None:
+    projected = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [-1.0, -1.0]])
+    heights = np.full(4, 2.0)
+    # A common squared-range perturbation cancels in the linear equations.
+    # Clipping the negative first planar square would bias the receiver.
+    ranges = np.sqrt(np.sum(projected**2, axis=1) + heights**2 - 0.01)
+    with pytest.raises(ValueError, match="incompatible"):
+        localize_planar_receiver_from_ranges(projected, heights, ranges)
+    tolerance = squared_range_noise_tolerance(float(np.max(ranges)), 0.001)
+    result = localize_planar_receiver_from_ranges(
+        projected, heights, ranges, range_tolerance_m2=tolerance
+    )
+    np.testing.assert_allclose(result.position_2d_m, 0.0, atol=1e-14)
+    assert result.range_rms_m < 0.003
+    assert squared_range_noise_tolerance(3.0, 0.001) == pytest.approx(0.036036)
+
+
+@pytest.mark.parametrize("bad_range", [-1.0, np.nan, np.inf])
+def test_planar_receiver_rejects_invalid_ranges(bad_range: float) -> None:
+    projected = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]])
+    with pytest.raises(ValueError, match="ranges must be finite and nonnegative"):
+        localize_planar_receiver_from_ranges(projected, np.ones(3), np.array([bad_range, 2.0, 2.0]))
 
 
 def _ranges(microphones: np.ndarray, sources: np.ndarray) -> np.ndarray:
@@ -128,3 +157,85 @@ def test_nondegenerate_planar_metric_has_no_continuous_null_direction() -> None:
     assert diagnostics.continuous_metric_nullity == 0
     assert diagnostics.metric_nullspace.shape == (5, 0)
     assert diagnostics.conic_nullity == 0
+
+
+def test_planar_event_seeds_ignore_validation_observations() -> None:
+    from acoustic_self_calibration.stratified.solver import (
+        _planar_seed_event_families,
+        _split_events,
+    )
+
+    rng = np.random.default_rng(74)
+    arrivals = rng.normal(size=(8, 40))
+    valid = np.ones_like(arrivals, dtype=bool)
+    fitting, validation = _split_events(40)
+    expected = _planar_seed_event_families(arrivals, valid, fitting, budget=8)
+    arrivals[:, validation] = 1e9 * rng.normal(size=(8, len(validation)))
+    assert _planar_seed_event_families(arrivals, valid, fitting, budget=8) == expected
+    assert len(expected) == 8
+    assert all(len(set(family)) == 4 for family in expected)
+    assert all(set(family).issubset(fitting) for family in expected)
+
+
+def test_planar_event_seed_families_are_prefix_stable() -> None:
+    from acoustic_self_calibration.stratified.solver import (
+        _planar_seed_event_families,
+        _split_events,
+    )
+
+    rng = np.random.default_rng(91)
+    arrivals = rng.normal(size=(8, 40))
+    valid = np.ones_like(arrivals, dtype=bool)
+    fitting, _ = _split_events(40)
+    budgets = (1, 2, 3, 4, 8, 16)
+    families = [
+        _planar_seed_event_families(arrivals, valid, fitting, budget=budget) for budget in budgets
+    ]
+    for budget, family in zip(budgets, families, strict=True):
+        assert 1 <= len(family) <= budget
+        assert all(set(seed).issubset(fitting) for seed in family)
+    for small, large in zip(families, families[1:], strict=False):
+        assert large[: len(small)] == small
+
+
+@pytest.mark.parametrize(
+    "layout,count,seed",
+    [
+        ("star", 8, 1),
+        ("star", 8, 2),
+        ("cross", 8, 2),
+        ("cross", 12, 0),
+    ],
+)
+def test_noisy_planar_recovery_respects_identifiability(layout, count, seed) -> None:
+    from acoustic_self_calibration import calibrate_planar_tdoa, reference_star_from_arrivals
+    from acoustic_self_calibration.geometry import rigid_align, rms_position_error
+    from acoustic_self_calibration.simulation import make_planar_benchmark_pulse_scene
+
+    scene = make_planar_benchmark_pulse_scene(
+        count,
+        array_span_m=2.0,
+        source_distance_range_m=(1.0, 3.0),
+        layout=layout,
+        event_count=20,
+        seed=seed,
+        sample_rate_hz=8000,
+    )
+    arrivals = _ranges(scene.microphone_positions_m, scene.source_positions_at_events_m).T / 343.0
+    sigma = 2e-6
+    rng = np.random.default_rng(np.random.SeedSequence([seed, 92741]))
+    arrivals += rng.normal(0.0, sigma, arrivals.shape)
+    measurements = reference_star_from_arrivals(
+        arrivals - arrivals[:, [0]],
+        np.full_like(arrivals, sigma),
+        receiver_event_times_s=scene.event_times_s + arrivals[:, 0],
+        reference_microphone=0,
+    )
+    result = calibrate_planar_tdoa(measurements)
+    if layout == "cross":
+        assert result.status != "solved"
+        return
+    assert result.status == "solved"
+    assert result.microphone_positions_m is not None
+    aligned, _, _ = rigid_align(result.microphone_positions_m, scene.microphone_positions_m)
+    assert rms_position_error(aligned, scene.microphone_positions_m) < 0.02

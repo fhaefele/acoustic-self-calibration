@@ -4,6 +4,7 @@ import pytest
 from acoustic_self_calibration.geometry import apply_rigid, rigid_align, rms_position_error
 from acoustic_self_calibration.stratified.factorization import factor_corrected_ranges
 from acoustic_self_calibration.stratified.metric_upgrade import (
+    _metric_nullspace_starts,
     build_receiver_metric_system,
     upgrade_metric_3d,
 )
@@ -137,3 +138,13 @@ def test_exact_metric_upgrade_keeps_nonphysical_branches_out_of_acceptance() -> 
     ]
     assert accepted
     assert accepted[0].corrected_range_rms_m < 1e-10
+
+
+def test_metric_nullspace_starts_are_prefix_stable() -> None:
+    for nullity in (1, 3, 5):
+        counts = (8, 11, 24, 64, 300)
+        starts = [_metric_nullspace_starts(nullity, count) for count in counts]
+        for index, count in enumerate(counts):
+            assert starts[index].shape == (count, nullity)
+        for small, large in zip(starts, starts[1:], strict=False):
+            assert np.allclose(small, large[: small.shape[0]], atol=1e-15, rtol=1e-15)
