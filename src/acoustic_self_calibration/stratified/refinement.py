@@ -56,7 +56,13 @@ def _predict_tdoa(
 class _MeasurementObjective:
     """Fixed measurement weighting shared by planar and spatial refinement."""
 
-    def __init__(self, measurements: EventTDOAMeasurements, speed_of_sound: float) -> None:
+    def __init__(
+        self,
+        measurements: EventTDOAMeasurements,
+        speed_of_sound: float,
+        *,
+        event_mask: np.ndarray | None = None,
+    ) -> None:
         self.measurements = measurements
         self.speed_of_sound = speed_of_sound
         id_to_index = {value: index for index, value in enumerate(measurements.microphone_ids)}
@@ -65,6 +71,8 @@ class _MeasurementObjective:
         )
         self.blocks: list[tuple[int, np.ndarray, np.ndarray]] = []
         for event in range(len(measurements.event_ids)):
+            if event_mask is not None and not event_mask[event]:
+                continue
             indices = np.flatnonzero(measurements.valid[event])
             if indices.size == 0:
                 continue
@@ -127,6 +135,8 @@ def _raw_tdoa_rms(
     sources: np.ndarray,
     measurements: EventTDOAMeasurements,
     speed_of_sound: float,
+    *,
+    event_mask: np.ndarray | None = None,
 ) -> float:
     predicted = _predict_tdoa(
         microphones,
@@ -134,7 +144,12 @@ def _raw_tdoa_rms(
         measurements,
         speed_of_sound,
     )
-    residual = predicted[measurements.valid] - measurements.tdoa_s[measurements.valid]
+    valid = measurements.valid & np.isfinite(predicted)
+    if event_mask is not None:
+        valid &= event_mask[:, None]
+    if not np.any(valid):
+        return float("nan")
+    residual = predicted[valid] - measurements.tdoa_s[valid]
     return float(np.sqrt(np.mean(residual * residual)))
 
 
@@ -229,7 +244,25 @@ def _refine_3d(
         )
     microphones = np.asarray(calibration.microphone_positions_m, dtype=float)
     sources = np.asarray(calibration.source_positions_m, dtype=float)
-    if not np.all(np.isfinite(microphones)) or not np.all(np.isfinite(sources)):
+    if not np.all(np.isfinite(microphones)):
+        return calibration, _diagnostics(
+            mode=mode,
+            attempted=False,
+            accepted=False,
+            initial_residual=None,
+            final_residual=None,
+            initial_rms=None,
+            final_rms=None,
+            nfev=0,
+            termination="not_started",
+            reason="partial_geometry",
+            max_nfev=max_nfev,
+            improvement_tolerance=improvement_tolerance,
+        )
+    # Events without a localized source stay unresolved: they are excluded
+    # from the objective and keep their NaN state after refinement.
+    event_mask = np.all(np.isfinite(sources), axis=1)
+    if not np.any(event_mask):
         return calibration, _diagnostics(
             mode=mode,
             attempted=False,
@@ -255,10 +288,11 @@ def _refine_3d(
     free_microphone_indices = np.flatnonzero(~fixed.reshape(-1))
     source_offset = len(free_microphone_indices)
 
+    initial_sources = np.where(event_mask[:, None], canonical_sources, 0.0)
     initial_vector = np.concatenate(
         [
             canonical_mics.reshape(-1)[free_microphone_indices],
-            canonical_sources.reshape(-1),
+            initial_sources.reshape(-1),
         ]
     )
 
@@ -269,7 +303,7 @@ def _refine_3d(
         refined_sources = vector[source_offset:].reshape(canonical_sources.shape)
         return mics, refined_sources
 
-    objective = _MeasurementObjective(measurements, speed_of_sound)
+    objective = _MeasurementObjective(measurements, speed_of_sound, event_mask=event_mask)
 
     def residual(vector: np.ndarray) -> np.ndarray:
         return objective.residual(*unpack(vector))
@@ -283,6 +317,7 @@ def _refine_3d(
         canonical_sources,
         measurements,
         speed_of_sound,
+        event_mask=event_mask,
     )
     optimized = least_squares(
         residual,
@@ -293,12 +328,15 @@ def _refine_3d(
         max_nfev=max_nfev,
     )
     refined_mics_c, refined_sources_c = unpack(optimized.x)
+    if not np.all(event_mask):
+        refined_sources_c = np.where(event_mask[:, None], refined_sources_c, np.nan)
     final_residual = residual(optimized.x)
     final_rms = _raw_tdoa_rms(
         refined_mics_c,
         refined_sources_c,
         measurements,
         speed_of_sound,
+        event_mask=event_mask,
     )
     accepted = _accept_refinement(
         initial_residual,
@@ -378,7 +416,25 @@ def _refine_planar(
         )
     microphones = np.asarray(calibration.microphone_positions_m, dtype=float)
     sources = np.asarray(calibration.source_representative_positions_m, dtype=float)
-    if not np.all(np.isfinite(microphones)) or not np.all(np.isfinite(sources)):
+    if not np.all(np.isfinite(microphones)):
+        return calibration, _diagnostics(
+            mode=mode,
+            attempted=False,
+            accepted=False,
+            initial_residual=None,
+            final_residual=None,
+            initial_rms=None,
+            final_rms=None,
+            nfev=0,
+            termination="not_started",
+            reason="partial_geometry",
+            max_nfev=max_nfev,
+            improvement_tolerance=improvement_tolerance,
+        )
+    # Events whose source could not be localized stay unresolved: they are
+    # excluded from the objective and keep their NaN state after refinement.
+    event_mask = np.all(np.isfinite(sources), axis=1)
+    if not np.any(event_mask):
         return calibration, _diagnostics(
             mode=mode,
             attempted=False,
@@ -412,7 +468,7 @@ def _refine_planar(
         )
     basis = np.array(gauge.basis, copy=True)
     canonical_sources = (sources - gauge.origin_m) @ basis
-    if float(np.median(canonical_sources[:, 2])) < 0.0:
+    if float(np.nanmedian(canonical_sources[:, 2])) < 0.0:
         basis[:, 2] *= -1.0
         canonical_sources = (sources - gauge.origin_m) @ basis
     canonical_mics = (microphones - gauge.origin_m) @ basis
@@ -423,6 +479,8 @@ def _refine_planar(
             np.abs(canonical_sources[:, 2]),
         ]
     )
+    if not np.all(event_mask):
+        source_states = np.where(event_mask[:, None], source_states, 0.0)
 
     fixed = np.zeros_like(mic_xy, dtype=bool)
     fixed[gauge.origin_index, :] = True
@@ -458,7 +516,7 @@ def _refine_planar(
         refined_mics = np.column_stack([refined_xy, np.zeros(len(refined_xy))])
         return refined_mics, refined_sources
 
-    objective = _MeasurementObjective(measurements, speed_of_sound)
+    objective = _MeasurementObjective(measurements, speed_of_sound, event_mask=event_mask)
 
     def residual(vector: np.ndarray) -> np.ndarray:
         return objective.residual(*unpack(vector))
@@ -473,6 +531,7 @@ def _refine_planar(
         initial_sources_c,
         measurements,
         speed_of_sound,
+        event_mask=event_mask,
     )
     optimized = least_squares(
         residual,
@@ -484,12 +543,15 @@ def _refine_planar(
         max_nfev=max_nfev,
     )
     refined_mics_c, refined_sources_c = unpack(optimized.x)
+    if not np.all(event_mask):
+        refined_sources_c = np.where(event_mask[:, None], refined_sources_c, np.nan)
     final_residual = residual(optimized.x)
     final_rms = _raw_tdoa_rms(
         refined_mics_c,
         refined_sources_c,
         measurements,
         speed_of_sound,
+        event_mask=event_mask,
     )
     accepted = _accept_refinement(
         initial_residual,
@@ -652,18 +714,24 @@ def estimate_planar_noise_sensitivity(
     measurements: EventTDOAMeasurements,
     *,
     speed_of_sound: float = 343.0,
+    event_mask: np.ndarray | None = None,
 ) -> PlanarNoiseSensitivity:
     """Estimate unconstrained microphone uncertainty at a fitted planar geometry.
 
     Geometry order must match the measurement microphone/event identifiers.
-    Known angle constraints are not represented by this diagnostic.
+    Known angle constraints are not represented by this diagnostic. Events
+    without a localized source are excluded from the estimation.
     """
     gauge = select_coordinate_gauge(microphones)
     if gauge.affine_rank != 2:
         raise ValueError("receiver geometry must be planar")
+    if event_mask is None:
+        event_mask = np.all(np.isfinite(sources), axis=1)
+    if not np.any(event_mask):
+        raise ValueError("at least one localized source is required")
     canonical_mics = (microphones - gauge.origin_m) @ gauge.basis
     canonical_sources = (sources - gauge.origin_m) @ gauge.basis
-    objective = _MeasurementObjective(measurements, speed_of_sound)
+    objective = _MeasurementObjective(measurements, speed_of_sound, event_mask=event_mask)
     jacobian = objective.jacobian(
         canonical_mics,
         canonical_sources,

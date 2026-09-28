@@ -245,6 +245,7 @@ def calibration_result_to_dict(
             "extra_microphones_completed": diagnostics.extra_microphones_completed,
             "extra_microphone_max_inlier_rms_m": (diagnostics.extra_microphone_max_inlier_rms_m),
             "rejection_reasons": list(diagnostics.rejection_reasons),
+            "validation_unresolved_event_ids": list(diagnostics.validation_unresolved_event_ids),
             "selected_hypothesis": selected,
             "ambiguity": {
                 "class_count": (

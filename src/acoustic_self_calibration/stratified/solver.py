@@ -65,6 +65,7 @@ class StratifiedCalibrationDiagnostics:
     validation_event_count: int
     validation_independent_coordinates: int
     rejection_reasons: tuple[str, ...]
+    validation_unresolved_event_ids: tuple[int, ...] = ()
     extra_microphones_completed: int = 0
     extra_microphone_max_inlier_rms_m: float | None = None
     planar_microphone_rms_std_m: float | None = None
@@ -123,7 +124,7 @@ def _assess_planar_noise_sensitivity(
         or result.microphone_positions_m is None
         or result.source_representative_positions_m is None
         or not np.all(np.isfinite(result.microphone_positions_m))
-        or not np.all(np.isfinite(result.source_representative_positions_m))
+        or not np.any(np.all(np.isfinite(result.source_representative_positions_m), axis=1))
     ):
         return result
     from .refinement import estimate_planar_noise_sensitivity
@@ -2392,6 +2393,7 @@ def calibrate_planar_tdoa_8mic(
             float,
             bool,
             bool,
+            tuple[int, ...],
         ]
     ] = []
     rejections: list[str] = []
@@ -2586,7 +2588,8 @@ def calibrate_planar_tdoa_8mic(
             validation_valid: list[bool] = []
             whitened_validation: list[float] = []
             validation_set = set(validation_events)
-            unresolved_validation = False
+            unresolved_validation: list[int] = []
+            validation_scored_events: set[int] = set()
 
             for event in range(len(measurements.event_ids)):
                 if np.all(np.isfinite(projected_sources[event])):
@@ -2597,7 +2600,7 @@ def calibrate_planar_tdoa_8mic(
                 )
                 if localization_receivers is None:
                     if event in validation_set:
-                        unresolved_validation = True
+                        unresolved_validation.append(int(measurements.event_ids[event]))
                     continue
                 receiver_ids = np.asarray(localization_receivers, dtype=int)
                 try:
@@ -2607,11 +2610,11 @@ def calibrate_planar_tdoa_8mic(
                     )
                 except ValueError:
                     if event in validation_set:
-                        unresolved_validation = True
+                        unresolved_validation.append(int(measurements.event_ids[event]))
                     continue
                 if localized_source.linear_rank < 3:
                     if event in validation_set:
-                        unresolved_validation = True
+                        unresolved_validation.append(int(measurements.event_ids[event]))
                     continue
                 projected_sources[event] = localized_source.projected_position_m
                 unsigned_heights[event] = localized_source.unsigned_height_m
@@ -2645,6 +2648,9 @@ def calibrate_planar_tdoa_8mic(
                     event_residuals.append(residual_value)
                     heldout_columns.append(column)
 
+                if event_residuals:
+                    validation_scored_events.add(event)
+
                 if measurements.covariance_s2 is not None and heldout_columns:
                     fitted_columns = np.asarray(
                         [receiver - 1 for receiver in localization_receivers if receiver != 0],
@@ -2663,10 +2669,19 @@ def calibrate_planar_tdoa_8mic(
                         )
                     )
 
-            if unresolved_validation or not validation_residuals:
+            unresolved_set = set(unresolved_validation)
+            # Individual withheld events that cannot be localized are marked
+            # unresolved and excluded from scoring instead of vetoing the whole
+            # hypothesis; a hypothesis is rejected only when most withheld
+            # events fail to produce scorable residuals.
+            if not validation_residuals or 2 * len(validation_scored_events) < len(validation_set):
                 rejections.append("planar_validation_unresolved")
                 continue
-            if not np.all(np.isfinite(projected_sources[np.asarray(validation_events, dtype=int)])):
+            if any(
+                int(measurements.event_ids[event]) not in unresolved_set
+                and not np.all(np.isfinite(projected_sources[event]))
+                for event in validation_events
+            ):
                 rejections.append("planar_validation_missing_source")
                 continue
 
@@ -2704,6 +2719,7 @@ def calibrate_planar_tdoa_8mic(
                     full_rms,
                     metric_weak,
                     structurally_weak,
+                    tuple(unresolved_validation),
                 )
             )
 
@@ -2765,6 +2781,7 @@ def calibrate_planar_tdoa_8mic(
         full_rms,
         metric_weak,
         structurally_weak,
+        unresolved_validation_ids,
     ) = selected
     if structurally_weak:
         rejections.append("ill_conditioned_planar_metric_design")
@@ -2798,6 +2815,7 @@ def calibrate_planar_tdoa_8mic(
                 validation_event_count=len(validation_events),
                 validation_independent_coordinates=validation.independent_coordinate_count,
                 rejection_reasons=tuple(rejections),
+                validation_unresolved_event_ids=unresolved_validation_ids,
             ),
         )
         polished_planar, planar_polish_diagnostics = polish_huber_then_wls(
@@ -2853,6 +2871,7 @@ def calibrate_planar_tdoa_8mic(
             validation_event_count=len(validation_events),
             validation_independent_coordinates=validation.independent_coordinate_count,
             rejection_reasons=tuple(rejections),
+            validation_unresolved_event_ids=unresolved_validation_ids,
         ),
     )
     return _assess_planar_noise_sensitivity(result, measurements, speed_of_sound)
@@ -3615,6 +3634,7 @@ def calibrate_planar_tdoa(
                         *core.diagnostics.rejection_reasons,
                         f"insufficient_planar_ranges_for_microphone_{microphone}",
                     ),
+                    validation_unresolved_event_ids=core.diagnostics.validation_unresolved_event_ids,
                     extra_microphones_completed=microphone - 8,
                     extra_microphone_max_inlier_rms_m=(
                         None if not completion_rms else max(completion_rms)
@@ -3662,6 +3682,7 @@ def calibrate_planar_tdoa(
                         *core.diagnostics.rejection_reasons,
                         f"planar_completion_failed_for_microphone_{microphone}",
                     ),
+                    validation_unresolved_event_ids=core.diagnostics.validation_unresolved_event_ids,
                     extra_microphones_completed=microphone - 8,
                     extra_microphone_max_inlier_rms_m=(
                         None if not completion_rms else max(completion_rms)
@@ -3695,6 +3716,7 @@ def calibrate_planar_tdoa(
                         *core.diagnostics.rejection_reasons,
                         f"weak_planar_completion_for_microphone_{microphone}",
                     ),
+                    validation_unresolved_event_ids=core.diagnostics.validation_unresolved_event_ids,
                     extra_microphones_completed=microphone - 8,
                     extra_microphone_max_inlier_rms_m=(
                         None if not completion_rms else max(completion_rms)
@@ -3743,6 +3765,7 @@ def calibrate_planar_tdoa(
                 core.diagnostics.validation_independent_coordinates
             ),
             rejection_reasons=core.diagnostics.rejection_reasons,
+            validation_unresolved_event_ids=core.diagnostics.validation_unresolved_event_ids,
             extra_microphones_completed=microphone_count - 8,
             extra_microphone_max_inlier_rms_m=(None if not completion_rms else max(completion_rms)),
         ),
