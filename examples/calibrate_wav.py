@@ -22,7 +22,7 @@ def main() -> None:
         choices=("general_3d", "receiver2d_source3d"),
         default="general_3d",
     )
-    parser.add_argument("--event-min-gap-ms", type=float, default=50.0)
+    parser.add_argument("--event-min-gap-ms", type=float, default=3.0)
     parser.add_argument("--max-tau-ms", type=float, default=20.0)
     args = parser.parse_args()
 

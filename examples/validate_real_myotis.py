@@ -43,7 +43,7 @@ def _parser() -> argparse.ArgumentParser:
         type=str,
         help="comma-separated reference microphone indices in audio-channel order",
     )
-    parser.add_argument("--event-min-gap-ms", type=float, default=50.0)
+    parser.add_argument("--event-min-gap-ms", type=float, default=3.0)
     parser.add_argument("--max-tau-ms", type=float, default=12.0)
     parser.add_argument("--tdoa-template-ms", type=float, default=1.8)
     return parser
