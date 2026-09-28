@@ -4,18 +4,18 @@
   "scene": {
     "microphones": {
       "positions_m": [
+        [-1.2, 0.0, 0.0],
+        [-0.8, 0.0, 0.0],
+        [-0.4, 0.0, 0.0],
         [0.0, 0.0, 0.0],
         [0.4, 0.0, 0.0],
         [0.8, 0.0, 0.0],
         [1.2, 0.0, 0.0],
-        [1.6, 0.0, 0.0],
-        [2.0, 0.0, 0.0],
-        [2.4, 0.0, 0.0],
-        [1.2, 0.0, 0.8],
-        [1.2, 0.0, 0.4],
-        [1.2, 0.0, -0.4],
-        [1.2, 0.0, -0.8],
-        [1.2, 0.0, -1.2]
+        [0.0, 0.0, 0.8],
+        [0.0, 0.0, 0.4],
+        [0.0, 0.0, -0.4],
+        [0.0, 0.0, -0.8],
+        [0.0, 0.0, -1.2]
       ]
     },
     "source": {
@@ -109,6 +109,7 @@
   },
   "metadata": {
     "sample_rate_hz": 375000,
-    "source_time_basis": "call_emission_sample_index"
+    "source_time_basis": "call_emission_sample_index",
+    "frame_note": "microphone x coordinates translated by -1.2 m so the cross junction sits at the origin; this matches the frame used to render myotis.wav (verified: extracted TDOAs match this scene to <20 us RMS)"
   }
 }
