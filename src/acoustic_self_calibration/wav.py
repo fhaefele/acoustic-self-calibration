@@ -6,6 +6,7 @@ from typing import Literal
 import numpy as np
 from scipy.io import wavfile
 
+from .array_configuration import ArrayConfiguration
 from .pipeline import AudioCalibrationResult, AudioModel, RefinementMode, calibrate_audio
 from .stratified.constraints import PlanarAngleConstraint
 
@@ -69,6 +70,7 @@ def calibrate_wav(
     planar_extra_microphone_rms_m: float = 0.02,
     angle_constraint: PlanarAngleConstraint | None = None,
     model: AudioModel = "general_3d",
+    array_configuration: ArrayConfiguration | None = None,
     source_region: Literal["same_side"] | None = None,
     refinement: RefinementMode = "none",
     refinement_max_nfev: int = 200,
@@ -103,6 +105,7 @@ def calibrate_wav(
         planar_extra_microphone_rms_m=planar_extra_microphone_rms_m,
         angle_constraint=angle_constraint,
         model=model,
+        array_configuration=array_configuration,
         source_region=source_region,
         refinement=refinement,
         refinement_max_nfev=refinement_max_nfev,

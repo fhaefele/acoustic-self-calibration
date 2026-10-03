@@ -5,6 +5,7 @@ from typing import Literal
 
 import numpy as np
 
+from .array_configuration import ArrayConfiguration
 from .events import (
     EventDetection,
     detect_transient_events,
@@ -37,6 +38,7 @@ class AudioCalibrationResult:
     refinement_mode: RefinementMode
     pre_refinement_calibration: StratifiedCalibrationResult | PlanarCalibrationResult | None = None
     refinement_diagnostics: RefinementDiagnostics | None = None
+    array_configuration: ArrayConfiguration | None = None
 
     @property
     def event_times_s(self) -> np.ndarray:
@@ -53,9 +55,13 @@ class AudioCalibrationResult:
         times = np.full(len(self.event_times_s), np.nan)
         if self.source_positions_m is not None and self.microphone_positions_m is not None:
             channel = self.event_channel or 0
-            times = self.event_times_s - np.linalg.norm(
-                self.source_positions_m - self.microphone_positions_m[channel], axis=1
-            ) / self.speed_of_sound_mps
+            times = (
+                self.event_times_s
+                - np.linalg.norm(
+                    self.source_positions_m - self.microphone_positions_m[channel], axis=1
+                )
+                / self.speed_of_sound_mps
+            )
         return times
 
     @property
@@ -156,6 +162,7 @@ def calibrate_audio(
     planar_extra_microphone_rms_m: float = 0.02,
     angle_constraint: PlanarAngleConstraint | None = None,
     model: AudioModel = "general_3d",
+    array_configuration: ArrayConfiguration | None = None,
     source_region: Literal["same_side"] | None = None,
     refinement: RefinementMode = "none",
     refinement_max_nfev: int = 200,
@@ -179,6 +186,16 @@ def calibrate_audio(
         raise ValueError("audio contains non-finite samples")
     if speed_of_sound <= 0.0:
         raise ValueError("speed_of_sound must be positive")
+    if array_configuration is not None:
+        array_configuration.validate_ids(tuple(range(values.shape[1])))
+        if model != "general_3d" and model != array_configuration.model:
+            raise ValueError("model conflicts with array configuration")
+        model = array_configuration.model
+        supplied_angle = array_configuration.angle_constraint()
+        if angle_constraint is not None and angle_constraint != supplied_angle:
+            raise ValueError("angle_constraint conflicts with array configuration")
+        angle_constraint = supplied_angle
+        source_region = None if model == "general_3d" else "same_side"
     if model not in {"general_3d", "receiver2d_source3d"}:
         raise ValueError("model must be 'general_3d' or 'receiver2d_source3d'")
     if source_region not in (None, "same_side"):
@@ -241,7 +258,12 @@ def calibrate_audio(
         )
     pre_refinement = None
     refinement_diagnostics = None
-    if refinement != "none":
+    structured = array_configuration is not None and array_configuration.name in {
+        "cross",
+        "t",
+        "grid",
+    }
+    if refinement != "none" and not structured:
         pre_refinement = calibration
         calibration, refinement_diagnostics = refine_calibration(
             calibration,
@@ -252,6 +274,45 @@ def calibrate_audio(
             improvement_tolerance=refinement_improvement_tolerance,
         )
 
+    if (
+        structured
+        and array_configuration is not None
+        and array_configuration.name in {"cross", "t"}
+        and array_configuration.angle_deg is None
+    ):
+        from dataclasses import replace
+
+        assert isinstance(calibration, PlanarCalibrationResult)
+        calibration = replace(
+            calibration,
+            status="degenerate",
+            microphone_positions_m=None,
+            source_representative_positions_m=None,
+            source_projected_positions_m=None,
+            source_unsigned_heights_m=None,
+            source_height_sign_known=None,
+            continuous_ambiguity_dimension=1,
+            diagnostics=replace(
+                calibration.diagnostics,
+                rejection_reasons=(
+                    *calibration.diagnostics.rejection_reasons,
+                    "unknown_two_arm_angle_metric_family",
+                ),
+            ),
+        )
+    if structured and calibration.microphone_positions_m is not None:
+        from .stratified.structured import refine_structured
+
+        assert isinstance(calibration, PlanarCalibrationResult)
+        pre_refinement = calibration
+        calibration = refine_structured(
+            calibration,
+            measurements,
+            array_configuration,
+            speed_of_sound=speed_of_sound,
+            mode="huber" if refinement == "huber" else "wls",
+            max_nfev=refinement_max_nfev,
+        )
     if source_region == "same_side":
         from .stratified.solver import _apply_source_half_space_prior
 
@@ -268,4 +329,5 @@ def calibrate_audio(
         refinement_mode=refinement,
         pre_refinement_calibration=pre_refinement,
         refinement_diagnostics=refinement_diagnostics,
+        array_configuration=array_configuration,
     )

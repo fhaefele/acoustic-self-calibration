@@ -115,6 +115,7 @@ def planar_noise_sensitivity(
     microphone_positions_2d_m: np.ndarray,
     *,
     whitened_residual: np.ndarray | None = None,
+    coordinate_tangent: np.ndarray | None = None,
 ) -> PlanarNoiseSensitivity:
     """Assess an unconstrained planar fit using its noise-whitened TDOA Jacobian.
 
@@ -144,7 +145,13 @@ def planar_noise_sensitivity(
     gauge[1::2, 2] = centered[:, 0]
     gauge_u, gauge_s, _ = np.linalg.svd(gauge, full_matrices=True)
     gauge_rank = int(np.sum(gauge_s > 1e-12 * gauge_s[0]))
-    reduced = jacobian[:, :columns] @ gauge_u[:, gauge_rank:]
+    if coordinate_tangent is None:
+        tangent = gauge_u[:, gauge_rank:]
+    else:
+        tangent_u, tangent_s, _ = np.linalg.svd(coordinate_tangent, full_matrices=False)
+        tangent_rank = int(np.sum(tangent_s > 1e-10 * tangent_s[0]))
+        tangent = tangent_u[:, :tangent_rank]
+    reduced = jacobian[:, :columns] @ tangent
     nuisance = jacobian[:, columns:]
     nuisance_rank = 0
     if nuisance.size:
@@ -153,7 +160,7 @@ def planar_noise_sensitivity(
         basis = nuisance_u[:, :nuisance_rank]
         reduced -= basis @ (basis.T @ reduced)
     singular = np.linalg.svd(reduced, compute_uv=False)
-    parameter_count = columns - gauge_rank
+    parameter_count = tangent.shape[1]
     rank = int(np.sum(singular > 1e-10 * singular[0])) if singular.size else 0
     uncertainty = (
         float(1.0 / (singular[-1] * np.sqrt(len(microphones))))

@@ -45,3 +45,23 @@ Checks: 26 API/CLI/export/planar tests passed; Ruff and Ty passed. A clean seed-
 chirp trial achieved 1.3 mm microphone and 8.2 mm source RMS, but was classified
 `weakly_identified`, so it does **not** pass the standard acceptance gate. The
 noise/conditioning classification remains an M6 investigation.
+
+## M2a — Structured construction implementation
+
+`ArrayConfiguration` is shared by audio/WAV and CLI `--array-config`. It records
+membership, directed rays, exact angle, grid labels, independent optional equal
+spacing relationships, and provenance. There are no metric pitches or square-cell
+assumptions. Separated arm endpoints support arrays without a junction microphone.
+Non-right metric recovery enumerates the signed feasible metric roots; noisy
+full-rank equations are fitted under an exact nonlinear constraint.
+
+Structured polishing uses reduced line/grid coordinates at every iterate. Unknown
+spacings remain free; local uncertainty is evaluated within that parameter space.
+Unknown-angle two-arm inputs retain a metric-family diagnosis, and thin two-row
+grids do not claim unique row separation. Frozen pre-polish validation is retained.
+
+Checks: 16 focused tests passed, including direct 60/75/90-degree cross/T chirps,
+9-channel uneven/equal grid chirps through WAV, and angle/two-row ablations.
+All tested recovery scenes met 5/10 cm and complete-event coverage. Ruff/Ty passed.
+The broader preregistered channel/event/noise matrix remains an M6/M8 gate;
+these focused checks alone do not establish full acceptance.

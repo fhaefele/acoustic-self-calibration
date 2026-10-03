@@ -1,5 +1,6 @@
 """Stratified TDOA acoustic self-calibration from discrete broadband events."""
 
+from .array_configuration import ArrayConfiguration
 from .evaluation import GroundTruthEvaluation, evaluate_against_ground_truth, evaluate_scenes
 from .events import (
     EventDetection,
@@ -54,6 +55,7 @@ from .visualization import plot_calibration_comparison, plot_scene_comparison
 from .wav import calibrate_wav, read_multichannel_wav
 
 __all__ = [
+    "ArrayConfiguration",
     "AudioCalibrationResult",
     "AudioModel",
     "compare_tdoa_models_8mic",

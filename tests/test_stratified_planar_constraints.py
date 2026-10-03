@@ -48,28 +48,25 @@ def test_explicit_right_angle_constraint_resolves_cross_metric_family() -> None:
     assert not np.any(candidate.source_height_sign_known)
 
 
-def test_only_exact_right_angle_constraint_is_supported_in_milestone_d() -> None:
+def test_nonright_angle_is_conditioned_on_directed_rays() -> None:
     microphones = myotis_cross_microphones()
     sources = myotis_cross_source_positions(np.linspace(0.25, 2.05, 18))
-    ranges = _ranges(microphones, sources)
-    factorization = factor_corrected_ranges(ranges, dimension=2)
-    constraint = PlanarAngleConstraint(
-        center_receiver=3,
-        arm_a_receiver=0,
-        arm_b_receiver=7,
-        angle_rad=np.deg2rad(80.0),
-        provenance="test",
-    )
-    try:
-        upgrade_metric_planar(
-            factorization,
+    for degrees in (60.0, 75.0, 120.0):
+        angle = np.deg2rad(degrees)
+        m = microphones.copy()
+        m[:, 0] += np.cos(angle) * microphones[:, 2]
+        m[:, 2] *= np.sin(angle)
+        ranges = _ranges(m, sources)
+        result = upgrade_metric_planar(
+            factor_corrected_ranges(ranges, dimension=2),
             ranges,
-            angle_constraint=constraint,
+            angle_constraint=PlanarAngleConstraint(3, 4, 7, angle, "declared directed rays"),
         )
-    except ValueError as error:
-        assert "right angles" in str(error)
-    else:
-        raise AssertionError("unsupported non-right-angle constraint must be rejected")
+        assert result.status == "solved"
+        assert len(result.candidates) == 1
+        assert result.candidates[0].corrected_range_rms_m < 1e-9
+        assert result.diagnostics.constraint_residual_rad is not None
+        assert abs(result.diagnostics.constraint_residual_rad) < 1e-9
 
 
 def test_noisy_ranges_cannot_relax_explicit_exact_angle() -> None:

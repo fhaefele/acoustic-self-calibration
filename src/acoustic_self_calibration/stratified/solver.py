@@ -2417,6 +2417,8 @@ def calibrate_planar_tdoa_8mic(
                 angle_constraint.arm_a_receiver,
                 angle_constraint.arm_b_receiver,
             }
+            if angle_constraint.arm_b_center_receiver is not None:
+                required_ids.add(angle_constraint.arm_b_center_receiver)
             if not required_ids.issubset(set(receiver_subset)):
                 rejections.append("constraint_receivers_not_in_subset")
                 continue
@@ -2430,6 +2432,11 @@ def calibrate_planar_tdoa_8mic(
                 angle_rad=angle_constraint.angle_rad,
                 provenance=angle_constraint.provenance,
                 exact=angle_constraint.exact,
+                arm_b_center_receiver=(
+                    None
+                    if angle_constraint.arm_b_center_receiver is None
+                    else local_index[angle_constraint.arm_b_center_receiver]
+                ),
             )
 
         for seed_events in seed_families:
@@ -3528,6 +3535,8 @@ def calibrate_planar_tdoa(
             angle_constraint.arm_b_receiver,
         )
     )
+    if angle_constraint is not None and angle_constraint.arm_b_center_receiver is not None:
+        required_ids = tuple(sorted(set(required_ids) | {angle_constraint.arm_b_center_receiver}))
     measurements, internal_to_input = _normalize_reference_star_measurements(
         measurements,
         required_microphone_ids=required_ids,
@@ -3548,6 +3557,11 @@ def calibrate_planar_tdoa(
             angle_rad=angle_constraint.angle_rad,
             provenance=angle_constraint.provenance,
             exact=angle_constraint.exact,
+            arm_b_center_receiver=(
+                None
+                if angle_constraint.arm_b_center_receiver is None
+                else input_to_internal[id_to_input[angle_constraint.arm_b_center_receiver]]
+            ),
         )
     if extra_microphone_rms_m <= 0.0:
         raise ValueError("extra_microphone_rms_m must be positive")

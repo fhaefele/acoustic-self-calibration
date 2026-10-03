@@ -4,9 +4,16 @@ from dataclasses import dataclass
 from typing import Literal
 
 import numpy as np
+from numpy.polynomial import Polynomial
+from scipy.optimize import minimize
 
 from ..geometry import canonicalize_scene_conditioned
-from .constraints import PlanarAngleConstraint, metric_angle_rad, right_angle_metric_row
+from .constraints import (
+    PlanarAngleConstraint,
+    angle_metric_rows,
+    metric_angle_rad,
+    right_angle_metric_row,
+)
 from .factorization import AffineFactorization
 from .identifiability import (
     PlanarIdentifiabilityDiagnostics,
@@ -101,6 +108,73 @@ def _metric_from_parameters(parameters: np.ndarray) -> tuple[np.ndarray, np.ndar
     return h, b
 
 
+def _nonright_metric_solutions(x, ranges, constraint):
+    design = planar_metric_design(x)
+    rhs = ranges[1:, 0] ** 2 - ranges[0, 0] ** 2
+    scales = np.maximum(np.linalg.norm(design, axis=0), np.finfo(float).eps)
+    a = design / scales
+    u, singular, vt = np.linalg.svd(a, full_matrices=True)
+    rank = int(np.sum(singular > singular[0] * 1e-10))
+    if rank < 4:
+        return (), rank, float("inf")
+    dot, aa, bb = angle_metric_rows(x, constraint)
+    cosine = float(np.cos(constraint.angle_rad))
+    base = np.linalg.lstsq(a, rhs, rcond=1e-10)[0] / scales
+    seeds = []
+    if rank == 4:
+        direction = vt[-1] / scales
+        pd = Polynomial([dot @ base, dot @ direction])
+        pa = Polynomial([aa @ base, aa @ direction])
+        pb = Polynomial([bb @ base, bb @ direction])
+        for root in (pd * pd - cosine**2 * pa * pb).roots():
+            if abs(np.imag(root)) < 1e-9:
+                seeds.append(base + float(np.real(root)) * direction)
+    else:
+        # Noisy range equations are fitted subject to the exact angle, never
+        # allowed to turn the construction input into a soft penalty.
+        seeds = [base]
+        scale = max(1.0, np.linalg.norm(base[:3]))
+        seeds.extend(np.array([scale, q * scale, scale, *base[3:]]) for q in (-0.5, 0.0, 0.5))
+    feasible = []
+    for seed in seeds:
+        if rank == 5:
+
+            def equality(p):
+                va, vb = float(aa @ p), float(bb @ p)
+                return float(dot @ p) - cosine * np.sqrt(max(va * vb, 0.0))
+
+            result = minimize(
+                lambda p: np.sum((design @ p - rhs) ** 2),
+                seed,
+                method="SLSQP",
+                constraints=[
+                    {"type": "eq", "fun": equality},
+                    {
+                        "type": "ineq",
+                        "fun": lambda p: np.linalg.eigvalsh(_metric_from_parameters(p)[0]) - 1e-12,
+                    },
+                ],
+                options={"ftol": 1e-14, "maxiter": 300},
+            )
+            seed = result.x
+        h, _ = _metric_from_parameters(seed)
+        if np.min(np.linalg.eigvalsh(h)) <= 1e-10:
+            continue
+        if abs(metric_angle_rad(x, h, constraint) - constraint.angle_rad) > 1e-8:
+            continue
+        if not any(np.allclose(seed, old, rtol=1e-6, atol=1e-8) for old in feasible):
+            feasible.append(seed)
+    # Local angle gradient augments the range design for conditional rank.
+    conditions = []
+    for p in feasible:
+        va, vb = float(aa @ p), float(bb @ p)
+        gradient = dot - cosine * (vb * aa + va * bb) / (2 * np.sqrt(va * vb))
+        augmented = np.vstack([a, gradient / scales])
+        sv = np.linalg.svd(augmented, compute_uv=False)
+        conditions.append(float(sv[0] / sv[-1]))
+    return tuple(feasible), 5 if feasible else rank, max(conditions, default=float("inf"))
+
+
 def upgrade_metric_planar(
     factorization: AffineFactorization,
     corrected_ranges_m: np.ndarray,
@@ -111,6 +185,7 @@ def upgrade_metric_planar(
     height_squared_tolerance_relative: float = 1e-9,
     positive_definite_relative_tolerance: float = 1e-10,
     angle_constraint: PlanarAngleConstraint | None = None,
+    _parameters: tuple[np.ndarray, int, float] | None = None,
 ) -> PlanarMetricResult:
     """Recover planar receivers, projected sources, and unsigned source heights."""
     if factorization.dimension != 2:
@@ -164,11 +239,34 @@ def upgrade_metric_planar(
             ),
         )
 
-    parameters, _, rank, condition = _solve_planar_metric_linear(
-        receiver_factors,
-        normalized_ranges,
-        angle_constraint=angle_constraint,
-    )
+    if _parameters is not None:
+        parameters, rank, condition = _parameters
+    elif angle_constraint is not None and abs(angle_constraint.angle_rad - np.pi / 2) > 1e-12:
+        solutions, rank, condition = _nonright_metric_solutions(
+            receiver_factors, normalized_ranges, angle_constraint
+        )
+        if solutions:
+            branches = [
+                upgrade_metric_planar(
+                    factorization,
+                    ranges,
+                    acceptance_rms_m=acceptance_rms_m,
+                    weak_factor_ratio=weak_factor_ratio,
+                    weak_condition_threshold=weak_condition_threshold,
+                    angle_constraint=angle_constraint,
+                    _parameters=(p, rank, condition),
+                )
+                for p in solutions
+            ]
+            candidates = tuple(c for branch in branches for c in branch.candidates)
+            selected = next((branch for branch in branches if branch.candidates), branches[0])
+            return PlanarMetricResult(selected.status, candidates, selected.diagnostics)
+        parameters = np.zeros(5)
+    else:
+        parameters, _, rank, condition = _solve_planar_metric_linear(
+            receiver_factors, normalized_ranges, angle_constraint=angle_constraint
+        )
+
     if rank < 5:
         if "receiver_metric_design_rank_deficient" not in reasons:
             reasons.append("receiver_metric_design_rank_deficient")

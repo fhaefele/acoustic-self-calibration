@@ -160,3 +160,34 @@ def make_chirp_scene(
         ]
     )
     return replace(scene, audio=audio, event_times_s=events, source_positions_at_events_m=sources)
+
+
+def make_array_chirp_scene(
+    microphone_positions_m: np.ndarray,
+    *,
+    seed: int = 10,
+    event_count: int = 20,
+    sample_rate_hz: int = 48000,
+    specification: ChirpSpecification = ChirpSpecification(),
+):
+    """Render arbitrary planar fixture coordinates; truth stays outside calibration."""
+    scene = make_chirp_scene(seed=seed, event_count=event_count, sample_rate_hz=sample_rate_hz)
+    microphones = np.asarray(microphone_positions_m, dtype=float)
+    if microphones.ndim != 2 or microphones.shape[1] != 3 or len(microphones) < 8:
+        raise ValueError("fixture needs at least eight 3D microphones")
+    signal = chirp_train(
+        scene.event_times_s,
+        sample_rate_hz,
+        len(scene.audio) / sample_rate_hz,
+        specification=specification,
+        seed=seed,
+    )
+    audio = render_moving_source(
+        signal,
+        sample_rate_hz,
+        microphones,
+        scene.trajectory_times_s,
+        scene.trajectory_positions_m,
+        radiation_pattern="omni",
+    )
+    return replace(scene, microphone_positions_m=microphones, audio=audio)

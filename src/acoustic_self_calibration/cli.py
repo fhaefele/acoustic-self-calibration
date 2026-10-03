@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from collections.abc import Sequence
 from importlib.metadata import version
@@ -9,6 +10,7 @@ from typing import Any
 
 import numpy as np
 
+from .array_configuration import ArrayConfiguration
 from .export import write_calibration_outputs, write_scene_comparison_outputs
 from .ground_truth import validate_ground_truth_json
 from .stratified.constraints import PlanarAngleConstraint
@@ -45,6 +47,9 @@ def _add_solver_options(parser: argparse.ArgumentParser) -> None:
         "--model",
         choices=("general-3d", "receiver2d-source3d"),
         default="general-3d",
+    )
+    solver.add_argument(
+        "--array-config", type=Path, help="declared construction JSON; no coordinates"
     )
     solver.add_argument("--source-region", choices=("same-side",))
     solver.add_argument("--speed-of-sound", type=float, default=343.0)
@@ -156,6 +161,7 @@ def _settings_dict(args: argparse.Namespace) -> dict[str, Any]:
         "tdoa_track_weight": args.tdoa_track_weight,
         "use_temporal_tracking": not args.no_temporal_tracking,
         "model": args.model,
+        "array_config": None if args.array_config is None else str(args.array_config),
         "source_region": args.source_region,
         "speed_of_sound_mps": args.speed_of_sound,
         "best_sigma_samples": args.best_sigma_samples,
@@ -232,6 +238,11 @@ def _run_calibrate(args: argparse.Namespace) -> int:
         angle_constraint=angle_constraint,
         model=model,
         source_region="same_side" if args.source_region == "same-side" else None,
+        array_configuration=(
+            None
+            if args.array_config is None
+            else ArrayConfiguration.from_dict(json.loads(args.array_config.read_text()))
+        ),
         refinement=args.refinement,
         refinement_max_nfev=args.refinement_max_nfev,
         refinement_improvement_tolerance=(args.refinement_improvement_tolerance),

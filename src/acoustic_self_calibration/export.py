@@ -181,7 +181,8 @@ def calibration_result_to_dict(
         source_scene.update(
             {
                 "representation": (
-                    "declared_common_side" if planar.source_region_constraint_enforced
+                    "declared_common_side"
+                    if planar.source_region_constraint_enforced
                     else "unsigned_plane_normal_representative"
                 ),
                 "projected_positions_m": _json_array(result.source_projected_positions_m),
@@ -212,6 +213,9 @@ def calibration_result_to_dict(
         "calibration": {
             "backend": "stratified_tdoa",
             "model": result.model,
+            "array_configuration": (
+                None if result.array_configuration is None else result.array_configuration.to_dict()
+            ),
             "status": calibration.status,
             "speed_of_sound_mps": result.speed_of_sound_mps,
             "rms_tdoa_residual_s": calibration.tdoa_rms_s,
