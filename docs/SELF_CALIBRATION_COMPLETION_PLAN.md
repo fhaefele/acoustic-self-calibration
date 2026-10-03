@@ -1,7 +1,8 @@
 # Completion plan: acoustic self-calibration from broadband chirps
 
-Status: implementation handoff; user requirements clarified. Unique no-prior
-Myotis recovery remains an unmet requirement, as explained in section 2.
+Status: implementation handoff; user-approved arbitrary and structured array
+configurations. Myotis recovery may use an explicit construction-angle constraint;
+the unconstrained cross remains an ambiguity check, as explained in section 2.
 Audit date: 2026-10-02.
 Audited revision: `00d22f82a4c353f881e46c1c243571fa1f32f2dd`.
 Implementation branch: `rewrite/stratified-tdoa-calibration`; existing PR: #8.
@@ -11,9 +12,12 @@ Implementation branch: `rewrite/stratified-tdoa-calibration`; existing PR: #8.
 Recover the fixed microphone positions and the moving sound source's positions
 at detected broadband chirp events from synchronized multichannel recordings.
 Sound speed is known. Emission times, microphone positions, source positions,
-array aperture, arm angles, microphone spacings, and source trajectory are not
-solver inputs. Do not use reference geometry to initialize, select, orient,
-regularize, tune, or stop a solve.
+array aperture, microphone spacings, and source trajectory are not solver inputs.
+The default arbitrary-planar mode also has no angle or construction information.
+Optional structured modes accept explicitly declared construction constraints,
+including known arm angles or grid membership, as specified below. Do not use
+evaluation reference geometry to initialize, select, orient, regularize, tune,
+or stop a solve.
 
 Support these physical setups:
 
@@ -27,9 +31,36 @@ do not matter. A global reflection is also unobservable without external
 orientation information. Metric scale comes from timing and known sound speed;
 evaluation must not fit a scale factor.
 
-No measured angle or distance is allowed, including for the Myotis recording.
-The existing explicitly constrained solver can remain available for other uses,
-but results using it do not satisfy this task.
+### User-facing array configurations
+
+| Configuration | Supplied physical assumptions | Unknown quantities to recover |
+| --- | --- | --- |
+| Arbitrary planar (default planar mode) | One microphone plane; all sources on one side | Microphone layout, spacings, and source positions |
+| Cross / T | Plane, common source side, arm membership, and explicitly supplied angle (often 90 degrees) | Microphone spacings, dimensions, and source positions |
+| Grid | Plane, common source side, row/column membership, and perpendicular row/column axes | Row and column spacings, dimensions, and source positions |
+| Room / cave | Fixed microphones in 3-D; unknown physical room boundary | Microphone layout and source positions, including outside the mic hull |
+
+`+` and `X` are rotated views of the same two-arm geometry and share a solver.
+A T uses the same intersecting-line model with different occupied arms. World
+orientation is arbitrary. A preset is an explicit declaration of construction
+facts, not evidence that the software inferred those facts from the recording.
+
+Grid spacings may be uneven by default. Equal spacing is an explicit option,
+independently for rows and columns; horizontal and vertical pitch are still
+unknown and need not be equal. Do not silently assume square cells or any known
+metric length. Report every supplied constraint and its provenance in output.
+
+Every configuration retains identifiability checks. A shape label alone does
+not guarantee uniqueness: an unspecified cross angle leaves its ambiguity, and
+a two-row grid can remain ambiguous even with perpendicular axes when row
+separation is unknown. A fuller grid generally supplies more independent
+geometric information; test actual rank and conditioning.
+
+This configuration choice supersedes the earlier blanket ban on angle inputs.
+Known angles and optional spacing relationships are allowed only when explicitly
+declared for a structured configuration. Absolute spacings and coordinates remain
+unknown. Myotis may use the known frame angle once its construction provenance
+and channel mapping are established; keep the unconstrained run as an ablation.
 
 Synthetic acceptance examples must use rendered broadband chirps and the public
 audio/WAV path. Exact and noisy TDOAs are intermediate diagnostic tests, not a
@@ -43,7 +74,7 @@ production frontend. One active moving emitter is the initial scope.
   Do not add a microphone-hull constraint to the solver.
 - Treat the floor/ceiling as physical scene description, with no surveyed floor,
   ceiling, gravity direction, or wall coordinates supplied to the solver. This
-  follows the no-geometry-input contract; it is not an estimated floor model.
+  follows the unknown-room-boundary contract; it is not an estimated floor model.
 - Direct sound only. Echoes, reflection rendering, reverberation, clock drift,
   multiple simultaneous emitters, and continuous-sound localization are outside
   this completion plan. Room/cave fixtures must have unobstructed direct paths
@@ -111,16 +142,16 @@ production solver inputs. Real placement departures from the ideal cross could
 change identifiability; their effect must be supported by measurement evidence
 above the noise level, not inferred from a favorable fitted residual.
 
-**Unmet requirement:** unique, accurate recovery of the exact-cross Myotis
-geometry under the confirmed input restrictions cannot be guaranteed. Report
-the supported ambiguity and recoverable quantities. Do not mark a convenient
-member of the family `solved`, choose the most nearly right-angle member, or
-claim this limitation is fixed by more starts, more calls, or chirp bandwidth.
-If unique Myotis recovery remains mandatory, completion is blocked unless the
-available observations change. An additional microphone away from the two cross
-arms is a possible acquisition improvement; its coordinates may remain unknown.
-Verify the resulting design rank rather than promising that any added channel
-automatically suffices.
+**Consequence for the approved configurations:** an arbitrary-planar Myotis run
+must retain this ambiguity. A cross/T run with an explicitly supplied known angle
+can remove this particular freedom. Use the existing right-angle capability as
+the initial Myotis recovery path and verify its remaining conditioning and
+accuracy; an angle constraint is not by itself a guarantee of a good result.
+Do not select a convenient angle from equivalent fits and label it measured.
+Removing the angle must restore the ambiguity in the exact-cross ablation.
+An additional microphone away from the two cross arms is another acquisition
+option when no angle is known; verify rank rather than promising that any added
+channel automatically suffices.
 
 ## 3. Audit of the current branch
 
@@ -129,13 +160,14 @@ automatically suffices.
 | Fixed mics and moving event sources | `pipeline.py`, `stratified/solver.py`, and event audio tests exist | Retain and validate on required scenes |
 | Common planar source side | `calibrate_planar_tdoa(source_half_space_sign=...)` and `_apply_source_half_space_prior` exist | Expose through audio/WAV/CLI; preserve through completion/refinement/export |
 | Common side for incomplete results | Helper returns unchanged if any representative source is nonfinite | Handle valid events individually and report unresolved signs honestly |
+| Structured planar configurations | Explicit exact right-angle constraint exists; arbitrary angles and grid configuration are absent | Add typed configuration, constraint propagation, and conditional identifiability tests |
 | Room source region | `calibrate_tdoa` has no source-region constraint | Correct for unknown room boundaries; do not impose a mic hull |
 | Room fixtures | Sources stay inside rectangular/irregular convex room walls | Retain and add explicit inside-room/outside-mic-hull acceptance cases |
 | Chirp fixtures | `broadband_pulse_train` uses differentiated Gaussian noise with a Hann window | Add explicit broadband chirps and call-to-call variation |
 | Source accuracy in new scene suites | `validate_scene` reports microphone RMS, timing RMS, and status | Add event-associated source metrics and coverage gates |
 | Public coordinate frame | Gauge utilities exist; exported scene uses solver coordinates directly | Establish common output frame, origin ID, axes, and transform metadata |
 | Planar JSON semantics | Export always labels positions `positive_plane_normal_representative` | Distinguish unsigned representative from explicitly one-sided coordinates |
-| Myotis acceptance | Uses right angle `(3,0,11)`, permits `weakly_identified`, obtains evaluation-side sign from reference | Add no-prior production path and truthful ambiguity acceptance |
+| Myotis acceptance | Uses right angle `(3,0,11)`, permits `weakly_identified`, obtains evaluation-side sign from reference | Use declared cross configuration, require solved recovery, and retain unconstrained ambiguity ablation |
 | Myotis source-side input | Harness sends sign to evaluation, not `calibrate_planar_tdoa` | Separate solver assumption from evaluation alignment |
 | Evaluation timestamps | Measurements expose receiver event times; Myotis reference declares emission times | Audit and specify emission/arrival time alignment before tightening source gates |
 | Physical echoes | Renderer explicitly uses direct sound only | Matches clarified scope; no echo implementation is required |
@@ -174,7 +206,7 @@ characterization from that standard matrix as specified in section 6.
 | New standard direct-sound chirp acceptance | <5 cm | <10 cm | <60 us; separately report progress toward 20 us | Required on held-out identifiable scenes |
 | Existing rendered-audio regression limits | <15 cm | <18 cm | <60 us | Mandatory preservation of existing gates |
 | Existing PCM16 regression limits | <18 cm | <22 cm | <60 us | Mandatory preservation of existing gates |
-| Existing constrained Myotis historical limits | <20 cm | <30 cm | <45 us fitted and validation | Historical only; constraint disallowed for this task |
+| Myotis with declared construction angle | <20 cm | <30 cm | <45 us fitted and validation | Existing accuracy baseline; additionally require solved status and honest source-side/coverage semantics |
 
 For an identifiable scene, success requires `solved`, complete finite microphone
 coordinates, required source-event coverage, source-region compliance where
@@ -223,8 +255,9 @@ Files: this document, `tests/test_myotis_geometry_report.py`,
 
 Exit checks: exact ambiguity proof passes at <1e-10 m range discrepancy; the
 alternative microphones differ by >0.1 m after rigid alignment; all alternative
-sources stay on the same side. The task's no-angle/no-distance policy is explicit
-and Myotis unique recovery is recorded as blocked where appropriate.
+sources stay on the same side. Arbitrary-planar and explicitly constrained modes
+have separate input/acceptance contracts. The Myotis recovery run declares its
+construction angle and its ablation removes that angle.
 
 ### M1 — Add realistic chirp fixtures and a complete benchmark report
 
@@ -300,6 +333,79 @@ consistent one-sided scenes; channel reordering preserves IDs and physics; parti
 results retain honest sign masks; refinement preserves the assumption. Blind
 cross cases remain ambiguous even with the common-side option.
 
+### M2a — Add explicit cross/T and grid configurations
+
+Files: `stratified/constraints.py`, `stratified/planar.py`,
+`stratified/solver.py`, `stratified/refinement.py`, `pipeline.py`, `wav.py`,
+`cli.py`, `export.py`; new `tests/test_planar_array_configurations.py` and
+`tests/test_planar_grid_calibration.py`.
+
+Implement one configuration contract shared by the Python API and CLI. Suggested
+public choices are `arbitrary-planar`, `cross`, `t`, `grid`, and `room`; exact
+spelling may follow the existing CLI convention. Keep the dimensional model
+distinct from optional construction constraints. `arbitrary-planar` selects the
+existing planar backend with the common-side assumption and no shape prior.
+`room` selects general-3D with no microphone-hull or room-boundary prior.
+
+1. Define immutable typed configuration data with microphone-ID membership,
+   explicit constraint values, units, and provenance. Validate compatibility
+   with the selected model, unknown IDs, duplicate grid slots, contradictory
+   memberships, and missing defining receivers. Output both the named preset
+   and the expanded physical constraints. Do not infer a preset from a reference.
+2. Cross/T: declare the two arm memberships and angle. Use common two-line
+   constraints for `+`, `X`, and T arrangements; their world rotation is free.
+   Do not require equal distances between microphones or symmetric arm lengths.
+   Express line directions from receiver-ID differences; do not silently assume
+   a microphone exists at the intersection when it does not. Reuse the existing
+   center/arm triplet interface where a junction microphone is present.
+3. Implement known 90-degree cross/T first using the existing metric constraint.
+   Preserve the existing `--right-angle` input as a compatible explicit form.
+   No supplied angle means arbitrary/unknown-angle behavior, not an automatic
+   90-degree fallback. A UI may offer a visibly declared 90-degree construction
+   preset, which must be recorded in output.
+4. Extend supplied-angle support to exact non-right angles such as 60 and 75
+   degrees. For affine arm vectors `u,v` and positive-definite metric `H`, enforce
+   `u.T H v = cos(theta) * sqrt((u.T H u) * (v.T H v))`. Preserve the sign if the
+   equation is squared during solving; enumerate and verify feasible branches.
+   Define the selected rays so 60 versus 120 degrees is not an ID-order accident.
+   Reject singular/near-collinear configurations with explicit conditioning
+   diagnostics. Estimating an unspecified angle does not remove the ambiguity.
+5. Grid: supply a `(row, column)` label per microphone, allowing missing cells.
+   Parameterize positions in an orthonormal planar frame as
+   `p_i = origin + column_position[col_i] * ex + row_position[row_i] * ey`.
+   Both sets of positions are unknown. Enforce declared ordering/distinctness
+   without a hidden minimum spacing, aperture, or metric scale.
+6. Default grid gaps are free. Optional equal-row-spacing and equal-column-spacing
+   flags reduce the corresponding coordinates to index times an unknown pitch.
+   The two pitches are independent; do not assume square cells. If square cells
+   are later offered, that is another explicit relationship, not the meaning of
+   the basic grid preset. No numeric pitch is supplied in this task.
+7. Apply constraints in metric recovery, hypothesis feasibility, microphone
+   completion, and refinement. Use the reduced structured parameterization or
+   exact constraints throughout; do not solve freely and snap coordinates to
+   lines/a grid afterward. Check feasibility again after polishing and preserve
+   rollback and frozen validation evidence.
+8. Assess identifiability and conditioning under the declared constraints. Do
+   not reject a constrained candidate solely because the unconstrained metric
+   was rank-deficient, or skip all uncertainty checks because a constraint exists.
+   Thin grids are required negative/conditional tests: perpendicular axes alone
+   need not determine separation of two parallel rows. Explicit equal-spacing
+   relationships may change that assessment, but must be tested independently.
+9. Add ablations that remove the angle, grid membership, or spacing relationship
+   while preserving audio/measurements. Report any restored ambiguity. Wrong
+   construction inputs must produce visible fit/validation/constraint diagnostics;
+   they must not be silently relaxed or corrected from reference geometry. Some
+   wrong angles can be acoustically indistinguishable, so never promise their
+   automatic detection. Label results conditional on the supplied construction.
+
+Exit checks: 90-degree cross and T, supplied 60/75-degree two-arm cases, full grids
+with uneven gaps, and equal-spacing options recover identifiable synthetic chirp
+scenes under the 5/10 cm gates. Rotating `+` into `X` has no physical effect.
+Unconstrained cross and underdetermined two-row grid cases retain their ambiguity.
+Same-side, microphone IDs, all unknown metric spacings, constraints, and
+provenance survive API/WAV/CLI/export. Angle uncertainty is a later extension;
+initial exact-angle results explicitly state that conditioning assumption.
+
 ### M3 — Define and test the public microphone-relative coordinate frame
 
 Files: `geometry.py`, result types in `stratified/solver.py`, `pipeline.py`,
@@ -354,21 +460,29 @@ both hull categories; the standard matrix meets 5/10 cm limits with complete
 coverage. Room coordinates never cross the solver input boundary. Unobservable
 floor/world orientation does not change relative-scene accuracy.
 
-### M5 — Make Myotis an honest no-prior end-to-end case
+### M5 — Recover Myotis with a declared cross angle and an unconstrained ablation
 
 Files: `myotis.py`, Myotis examples, `tests/test_myotis_real_data.py`,
 `tests/test_myotis_constrained_evaluation.py`, `export.py`, and data provenance docs.
 
 1. Add a reproducible run using the same public WAV path as synthetic chirps:
-   planar model and same-side assumption, no angle/distance input, no reference
-   read until the geometry result is frozen. Use the recording's actual sample
-   rate. Share frontend/configuration code rather than duplicating a special solve.
-2. Separate the current constrained historical test from the no-prior acceptance
-   case. Never cite its 20/30 cm thresholds as proof of no-prior recovery.
+   cross configuration, common source side, and the declared frame angle with
+   construction provenance. Establish whether the existing 90-degree `(3,0,11)`
+   triplet accurately describes the recording's physical frame/channel mapping.
+   Read no evaluation reference until the geometry result is frozen. Use the
+   actual sample rate; share frontend/configuration code with ordinary users.
+2. Strengthen the current constrained test: require `solved`, all 12 microphones,
+   explicitly reported detected/localized call coverage, microphone RMS <0.20 m,
+   source RMS <0.30 m, and fitted plus held-out timing RMS <45 us. Preserve those
+   existing real-data limits while reporting achieved accuracy and potential
+   improvements. The 5/10 cm gates apply to the agreed synthetic matrix. Do not
+   report `weakly_identified` as successful real-data recovery.
 3. Remove reference-derived source-side selection from the production path.
    Evaluate common-side output using the documented global frame convention;
    do not reflect individual events toward reference positions.
-4. Investigate candidate-family/near-degeneracy evidence from extracted timing.
+4. Run an arbitrary-planar ablation on the same measurements with the angle and
+   construction constraints removed. Investigate candidate-family/near-degeneracy
+   evidence from extracted timing.
    Report solved microphone/source coverage, unresolved IDs, conditioning,
    validation coverage, and family diagnostics. For the exact-cross fixture,
    return `ambiguous`/`degenerate`, with a representative/family only if meaningful.
@@ -378,12 +492,14 @@ Files: `myotis.py`, Myotis examples, `tests/test_myotis_real_data.py`,
    fixture rather than count a skip as successful real-data validation.
 6. Preserve a runnable command and JSON/PNG report. If the data cannot support a
    unique scene, explicitly state which requested output remains unavailable and
-   why; retain the original user requirement as unmet.
+   why. If the stated construction angle lacks independent support, flag that
+   assumption as unverified; do not obtain it by inspecting ground-truth positions.
 
-Exit checks: the committed recording is actually processed; no prohibited prior
-is present; reference-independence and ambiguity tests pass; source/event coverage
-is explicit. Unique real-geometry success is not an exit claim for an unidentifiable
-cross. Do not implement arbitrary regularization to make that claim.
+Exit checks: the committed recording is processed; declared-angle recovery meets
+the strengthened acceptance criteria; reference-independence and unconstrained
+ambiguity tests pass; source/event coverage is explicit. Results state that
+recovery is conditional on the supplied construction angle. Arbitrary-planar
+Myotis is still an ambiguity case, not evidence of unique no-angle recovery.
 
 ### M6 — Tighten accuracy on identifiable chirp scenes
 
@@ -458,9 +574,9 @@ CI workflow, benchmark manifests/results, PR description.
    dedicated Myotis case explicitly; verify it did not skip. Preserve the existing
    Python 3.11–3.14 lint/type/test/build/CLI checks.
 5. Rewrite the PR description around verified behavior and explicit limitations.
-   Distinguish accurate unique recoveries, correct ambiguity diagnoses, and
-   remaining unmet user goals. Do not merge under a claim of complete Myotis
-   recovery while its identifiability blocker remains.
+   Distinguish accurate recoveries conditional on declared constraints, arbitrary
+   planar recoveries, correct ambiguity diagnoses, and remaining unmet user goals.
+   State the actual Myotis angle input and its provenance in every recovery claim.
 
 Exit checks: a fresh checkout can reproduce the declared reports; all mandatory
 checks pass; the acceptance matrix has no unacknowledged missing cases; each
@@ -475,10 +591,11 @@ Milestone dependencies and suggested commit units:
 | M0 | Confirmed scope in section 1 | Identifiability proof and fixture provenance |
 | M1 | M0 | Chirp renderer, independent delay checks, full benchmark metrics |
 | M2 | M0 | Same-side input through TDOA/audio/WAV/CLI and partial-result tests |
-| M3 | M2 | Shared output frame and round-trip/invariance tests |
+| M2a | M0, M1, M2 | Explicit cross/T/angle/grid configuration and ablation tests |
+| M3 | M2, M2a | Shared output frame and round-trip/invariance tests |
 | M4 | M1, M3 | Wall-array recovery inside room, including outside-mic-hull sources |
-| M5 | M0, M2, M3 | Reference-independent Myotis run and explicit ambiguity evidence |
-| M6 | M1–M5 | Measured fixes meeting the new identifiable-scene targets |
+| M5 | M0, M2, M2a, M3 | Declared-angle Myotis recovery and unconstrained ablation |
+| M6 | M1–M5, including M2a | Measured fixes meeting the new identifiable-scene targets |
 | M7 | M6 | Stress characterization and reliable diagnostic outputs |
 | M8 | M0–M7 | Fresh-checkout reproduction, CI, documentation, final evidence |
 
@@ -487,8 +604,13 @@ exit code, cases attempted/passed/failed/skipped, metric limits, and log/artifac
 locations. A code change without its stated acceptance evidence is incomplete.
 
 Use 8/12/16/24 channels and 20/40 events. Include generic planar, three-line star,
-exact cross, near-cross, rectangular-wall, and irregular-wall layouts. For planar
-fixtures retain 2 m aperture / 1–3 m source distance and 4 m / 1–6 m variants.
+cross/T with and without supplied angles, near-cross, rectangular-wall, and
+irregular-wall layouts. Add grid cases with 3x3 (9 channels), 3x4 (12), 4x4 (16),
+and 4x6 (24), plus an 8-channel incomplete 3x3 grid and two-row ambiguity cases.
+Test free unequal gaps and explicit equal-spacing options separately; the solver
+must support the 9-channel grid even though older fixture helpers hard-code
+8/12/16/24. For planar fixtures retain 2 m aperture / 1–3 m source distance and
+4 m / 1–6 m variants.
 For room fixtures start with 6 × 5 × 3 m and vary wall mounting heights. These
 dimensions are generation truth only.
 
@@ -498,8 +620,10 @@ WAV stages. The standard audio acceptance matrix uses direct sound at clean and
 as separately labeled stress characterization; report every outcome. Define SNR
 using clean per-channel signal power over call-active samples, with that mask
 available to the renderer/evaluator only. Do not use an unexplained absolute
-noise amplitude. Exact cross cases belong to an ambiguity matrix, not the
-recovery denominator. Keep near-cross sensitivity cases separate from generic
+noise amplitude. Exact cross cases without a supplied angle belong to an
+ambiguity matrix; identifiable supplied-angle cross/T cases belong to recovery
+acceptance. Apply the same distinction to constrained versus underdetermined
+grids. Keep near-cross sensitivity cases separate from generic
 full-rank recovery cases and report their accuracy/status honestly.
 
 Preregister development seeds 10–12 and evaluation seeds 30–34 before tuning.
@@ -535,8 +659,10 @@ writable cache locations such as `UV_CACHE_DIR=/tmp/asc-uv-cache`,
 
 ## 7. Implementation handoff rules
 
-- Never supply angle, spacing, coordinates, aperture, source truth, or a true
-  room hull to the blind solver. Physical shape assumptions must be explicit.
+- Arbitrary-planar mode receives no angle, spacing, or shape input. Structured
+  modes receive only their explicitly declared construction assumptions. Never
+  supply ground-truth coordinates, numeric spacings, aperture, source truth, or
+  a true room hull to any solver in this task. Record constraint provenance.
 - Never weaken existing tests, change reference geometry, omit failed seeds, or
   relabel uncertain geometry merely to achieve a green summary.
 - Establish geometry identifiability before optimizing accuracy or runtime.
@@ -545,9 +671,9 @@ writable cache locations such as `UV_CACHE_DIR=/tmp/asc-uv-cache`,
 - Commit coherent milestone changes with their checks. Report what passed,
   failed, was skipped, and remains mathematically or empirically unresolved.
 - Complete the implementation and provide reviewable evidence before proposing
-  PR completion. Its no-prior Myotis uniqueness requirement remains unmet under
-  the demonstrated ambiguity; the user has not agreed to count an ambiguity
-  result as fulfilling unique recovery. Do not describe the whole goal as met.
+  PR completion. Myotis recovery is conditional on its explicitly supplied frame
+  angle; removing that angle must preserve the demonstrated ambiguity. Do not
+  present constrained recovery as success of the arbitrary-planar mode.
 
 ## Appendix: reproduce the Myotis identifiability counterexample
 
