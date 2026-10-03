@@ -15,6 +15,8 @@ from acoustic_self_calibration import (
     calibrate_tdoa,
     reference_star_from_arrivals,
 )
+from acoustic_self_calibration.benchmarking import scene_metrics
+from acoustic_self_calibration.chirps import make_chirp_scene
 from acoustic_self_calibration.geometry import (
     apply_rigid,
     rigid_align,
@@ -138,6 +140,18 @@ def validate_scene(
             model="receiver2d_source3d" if planar else "general_3d",
         )
         result = audio_result.calibration
+    if stage in ("exact", "noisy"):
+        emission_times = scene.event_times_s
+    else:
+        positions = audio_result.source_positions_m
+        microphones = audio_result.microphone_positions_m
+        emission_times = np.full(len(result.event_ids), np.nan)
+        if positions is not None and microphones is not None:
+            channel = audio_result.event_channel or 0
+            emission_times = (
+                audio_result.event_times_s
+                - np.linalg.norm(positions - microphones[channel], axis=1) / 343.0
+            )
     row: dict[str, object] = {
         "status": result.status,
         "solve_seconds": round(time.perf_counter() - started, 4),
@@ -169,6 +183,7 @@ def validate_scene(
         target = scene.microphone_positions_m[list(ids)]
         aligned, _, _ = rigid_align(result.microphone_positions_m, target)
         row["microphone_rms_error_m"] = round(rms_position_error(aligned, target), 6)
+    row.update(scene_metrics(result, scene, emission_times))
     return row
 
 
@@ -187,6 +202,9 @@ def main() -> None:
         default=2.0,
         help="per-channel arrival standard deviation for noisy TDOAs",
     )
+    parser.add_argument("--waveform", choices=("noise", "chirp"), default="noise")
+    parser.add_argument("--rapid", action="store_true")
+    parser.add_argument("--snr-db", type=float)
     parser.add_argument("--layouts", nargs="+")
     parser.add_argument(
         "--array-spans", type=float, nargs="+", choices=(2.0, 4.0), default=[2.0, 4.0]
@@ -248,6 +266,21 @@ def main() -> None:
                             metadata.update(room_span_m=[6.0, 5.0], room_height_m=3.0)
                         else:
                             scene = make_random_3d_pulse_scene(count, event_count=events)
+                        if args.waveform == "chirp":
+                            if args.suite == "legacy":
+                                parser.error("chirp waveform requires planar or room suite")
+                            scene = make_chirp_scene(
+                                count,
+                                geometry=args.suite,
+                                layout=layout,
+                                event_count=events,
+                                seed=seed,
+                                array_span_m=span or 2.0,
+                                source_distance_range_m=(1.0, 3.0 if span == 2.0 else 6.0),
+                                rapid=args.rapid,
+                                snr_db=args.snr_db,
+                            )
+                            metadata.update(waveform="chirp", rapid=args.rapid, snr_db=args.snr_db)
                         print(
                             json.dumps(
                                 metadata
