@@ -33,7 +33,7 @@ def _write_scene(path: Path, *, offset: float = 0.0) -> Path:
     )
 
 
-def test_calibrate_subcommand_parses_short_output_and_reference() -> None:
+def test_calibrate_subcommand_parses_stratified_options() -> None:
     args = build_parser().parse_args(
         [
             "calibrate",
@@ -42,26 +42,24 @@ def test_calibrate_subcommand_parses_short_output_and_reference() -> None:
             "run01",
             "-r",
             "truth.json",
-            "--estimate-speed-of-sound",
-            "--distance-prior",
-            "0,1,1.234,0.002",
+            "--event-min-gap-ms",
+            "50",
+            "--root-start-count",
+            "48",
+            "--no-temporal-tracking",
         ]
     )
     assert args.command == "calibrate"
     assert args.output == Path("run01")
     assert args.reference == Path("truth.json")
-    assert args.estimate_speed_of_sound is True
-    assert len(args.distance_prior) == 1
-    prior = args.distance_prior[0]
-    assert prior.microphone_a == 0
-    assert prior.microphone_b == 1
-    assert prior.distance_m == pytest.approx(1.234)
-    assert prior.sigma_m == pytest.approx(0.002)
+    assert args.event_min_gap_ms == pytest.approx(50.0)
+    assert args.root_start_count == 48
+    assert args.no_temporal_tracking is True
 
 
-def test_calibrate_rejects_malformed_distance_prior() -> None:
+def test_old_bayesian_solver_options_are_rejected() -> None:
     with pytest.raises(SystemExit):
-        build_parser().parse_args(["calibrate", "recording.wav", "--distance-prior", "0,1,1.0"])
+        build_parser().parse_args(["calibrate", "recording.wav", "--motion-sigma-mps", "3"])
 
 
 def test_old_flat_cli_is_rejected() -> None:
@@ -106,3 +104,49 @@ def test_compare_writes_json_and_png(tmp_path: Path) -> None:
     assert document["comparison"]["reference_path"] == str(reference)
     assert document["evaluation"]["microphones"]["rms_error_m"] < 1e-12
     assert document["evaluation"]["source"]["rms_error_m"] < 1e-12
+
+
+def test_planar_model_and_constraint_options_parse() -> None:
+    args = build_parser().parse_args(
+        [
+            "calibrate",
+            "recording.wav",
+            "--model",
+            "receiver2d-source3d",
+            "--right-angle",
+            "3,0,7",
+            "--constraint-provenance",
+            "survey",
+            "--refinement",
+            "huber",
+            "--refinement-max-nfev",
+            "75",
+            "--refinement-improvement-tolerance",
+            "1e-7",
+        ]
+    )
+    assert args.model == "receiver2d-source3d"
+    assert args.right_angle == (3, 0, 7)
+    assert args.constraint_provenance == "survey"
+    assert args.refinement == "huber"
+    assert args.refinement_max_nfev == 75
+    assert args.refinement_improvement_tolerance == pytest.approx(1e-7)
+
+
+def test_cli_help_contains_stratified_terms_only(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["calibrate", "--help"])
+    help_text = capsys.readouterr().out.lower()
+    assert "stratified" in help_text
+    assert "receiver2d-source3d" in help_text
+    assert "refinement" in help_text
+    assert "wls" in help_text
+    assert "huber" in help_text
+    assert "refinement-max-nfev" in help_text
+    assert "refinement-improvement-tolerance" in help_text
+    assert "bayesian" not in help_text
+    assert "posterior" not in help_text
+    assert "motion prior" not in help_text
+    assert "laplace" not in help_text

@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "acoustic-self-calibration"
-version = "0.5.1"
-description = "Bayesian 3D acoustic self-calibration from a moving broadband source"
+version = "0.6.0"
+description = "Stratified TDOA acoustic self-calibration from transient source events"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}

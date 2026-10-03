@@ -1,19 +1,33 @@
-# Synthetic audio validation
+# Validation
 
-Validated on 2026-09-16 with the public `calibrate_audio(...)` and `calibrate_wav(...)` APIs.
+The production release uses the public event-driven stratified APIs:
+`calibrate_audio(...)`, `calibrate_wav(...)`, `calibrate_tdoa(...)`, and
+`calibrate_planar_tdoa(...)`.
 
-This benchmark is end-to-end. It does **not** feed ideal geometric TDOAs into the solver. Each run:
+No production validation path uses the removed Bayesian/MAP backend.
 
-1. creates a random 3-D microphone array,
-2. creates a continuously moving non-planar source trajectory,
-3. points a cardioid radiation pattern roughly toward the array center,
-4. renders broadband audio with retarded emission time,
-5. adds waveform noise,
-6. extracts a redundant pairwise GCC-PHAT graph,
-7. converts relative GCC confidence into heteroscedastic timing uncertainty,
-8. initializes geometry with the low-rank Euclidean bootstrap,
-9. solves the Bayesian/MAP factor graph with a robust Cauchy likelihood,
-10. rigidly aligns the recovered scene to truth only for error reporting.
+## Random 3-D rendered audio
+
+Deterministic fixtures cover:
+
+```text
+microphones: 8, 12, 16, 24
+events:      20 and 40
+sample rate: 48 kHz
+duration:    5.0 s
+source:      moving non-planar cardioid pulse source
+```
+
+Hard gates:
+
+```text
+microphone RMS < 0.15 m
+source RMS     < 0.18 m
+TDOA RMS       < 60 us
+```
+
+The clean benchmark also requires all scheduled events, finite positive timing
+uncertainties, and valid reference-star measurements.
 
 Run:
 
@@ -21,84 +35,155 @@ Run:
 uv run python examples/validate_synthetic_audio.py
 ```
 
-## Results
+## PCM16 WAV regression
 
-| Microphones | TDOA pairs | Source frames | Mic RMS error | Source RMS error | TDOA residual RMS | MAP evaluations |
-|---:|---:|---:|---:|---:|---:|---:|
-| 8  | 13 | 16 | 0.006390 m | 0.019613 m | 6.5637 us | 10 |
-| 16 | 29 | 16 | 0.007571 m | 0.020350 m | 9.1339 us | 13 |
-| 24 | 45 | 16 | 0.008282 m | 0.013458 m | 8.6676 us | 14 |
+The 8-microphone 20- and 40-event fixtures are quantized to PCM16 and passed through
+`calibrate_wav(...)`.
 
-All runs reported optimizer success.
+WAV gates:
 
-## Scenario
+```text
+microphone RMS < 0.18 m
+source RMS     < 0.22 m
+TDOA RMS       < 60 us
+```
 
-- sample rate: 16 kHz,
-- duration: 8 s,
-- analysis frame: 512 samples,
-- analysis hop: 8192 samples,
-- GCC interpolation: 16x,
-- microphone bounds: x/y ±1.5 m, z 0–2.2 m,
-- source path: non-planar elliptical loop,
-- radiation: cardioid,
-- pair graph: redundant, two reference roots,
-- likelihood: Cauchy,
-- motion prior: 3 m/s velocity-change sigma,
-- waveform noise standard deviation: `1e-5` in normalized pressure units.
+Decoder tests separately cover PCM16, packed PCM24, PCM32, and float WAV data.
 
-## WAV workflow regression
+## Measurement and robustness checks
 
-The automated suite writes the 8-microphone rendered scene to a PCM16 multichannel WAV file and runs the public `calibrate_wav(...)` path with Laplace uncertainty enabled. The test checks:
+The suite covers:
 
-- WAV decoding and integer-to-float normalization,
-- full audio -> pairwise TDOA -> MAP calibration,
-- microphone RMS position error below 0.10 m,
-- source RMS trajectory error below 0.10 m,
-- finite microphone-position standard deviations,
-- finite source-position standard deviations with the same `(frames, 3)` shape as the recovered trajectory.
+- transient event timing and scaling invariance,
+- tracker-enabled and tracker-disabled event association,
+- immutable reference-star TDOA/covariance contracts,
+- reference changes and redundant-pair round trips,
+- missing measurements and gross TDOA outliers,
+- covariance-aware held-out whitening,
+- generation/completion/validation leakage rejection,
+- independent-subset geometric consensus.
 
-Separate decoder tests exercise PCM16, true packed PCM24, PCM32, and float32 WAV files.
+## Stratified geometry checks
 
-## Ground-truth evaluation regression
+Exact/noisy tests cover:
 
-Ground-truth tests use a scene transformed by a known rigid transform and verify that:
+- 9r/5s and 7r/4s linear offset anchors,
+- generated 7r/6s minimal rank constraints,
+- independent verification against all 75 rank-four minors,
+- corrected-range SVD factorization,
+- 3-D Euclidean metric recovery,
+- event and microphone expansion,
+- 8/12/16/24 microphone TDOA-only calibration.
 
-- alignment is fitted from microphones only,
-- the same transform recovers the source trajectory without independent source alignment,
-- GT source samples are interpolated to estimate times,
-- incomplete GT time coverage is rejected,
-- exact transformed scenes produce near-zero microphone and source error,
-- JSON output embeds the GT and aligned evaluation metrics,
-- exactly one JSON result and one PNG figure are emitted,
-- the PNG contains the 3-D plus XY/XZ/YZ comparison panels.
+The 7r/6s runtime root search is deterministic but numerical. Its
+`search_stabilized` flag is a completeness diagnostic, not a symbolic proof that no
+additional isolated root exists outside the search region.
 
-The project no longer emits NPZ or CSV result files.
+## Planar observables and ambiguity
 
-## Laplace uncertainty
+The nondegenerate planar fixture verifies:
 
-The solver partitions the final MAP Hessian into global parameters and source states. Microphone/global marginal covariance is obtained with the source block eliminated through a Schur complement. Source-state marginal variances then use the corresponding block-inverse identity, so source standard deviations include coupling to uncertain microphone geometry and enabled nuisance parameters.
+- rank-2 receiver factorization,
+- Euclidean planar metric recovery,
+- source projections,
+- unsigned source plane-normal heights,
+- exact invariance under independent source-side sign flips.
 
-These are local posterior standard deviations in the solver's gauge-fixed coordinate frame. They quantify curvature of the fitted model near the MAP solution; they do not capture multimodal ambiguity or model mismatch such as unmodeled room reflections.
+The exact Myotis cross is a **degeneracy** fixture. It verifies:
 
-The GT evaluation additionally reports a practical radial uncertainty diagnostic based on Euclidean position error divided by `sqrt(std_x^2 + std_y^2 + std_z^2)`. This is not presented as a formal 3-D Gaussian coverage probability because complete per-position covariance matrices and alignment uncertainty are not currently exported.
+- conic design rank 5,
+- one-dimensional planar metric nullspace,
+- continuous non-rigid range/TDOA-equivalent deformation,
+- no forced unique right-angle solution.
 
-## Other automated checks
+A supplied exact right-angle arm constraint lifts the exhibited metric ambiguity. An
+ablation removes the constraint and must restore ambiguity/degeneracy. Source height
+sign remains separate and requires an explicit half-space convention for signed error.
 
-The test suite also covers:
+## Model comparison
 
-- Gaussian/MAP recovery with noisy ideal timing data,
-- relative channel clock-offset estimation,
-- pairwise measurement-graph consistency,
-- known-baseline sound-speed estimation,
-- rejection of unanchored sound-speed estimation,
-- marginalized microphone and source-position Laplace uncertainty,
-- JSON GT read/write helpers and schema validation,
-- JSON-only result output,
-- moving-source rendering and source directivity,
-- GCC-PHAT delay sign and magnitude.
+Planar and general-3D models are compared on the same held-out event basis. Tests cover:
+
+- clearly planar data,
+- generic 3-D data,
+- near-ties returning `ambiguous`,
+- near-planar/near-cross structural conditioning.
+
+Training residual alone never forces a model selection.
+
+## JSON and release surface
+
+Tests verify that solved, ambiguous, and degenerate results serialize with:
+
+- backend/model/status,
+- subset/root/hypothesis counts,
+- conditioning,
+- held-out robust residual summaries,
+- lineage counts,
+- rejection reasons,
+- ambiguity support,
+- extra-microphone completion,
+- refinement mode/attempt/acceptance,
+- refinement optimizer budget and improvement tolerance,
+- pre/post refinement coordinates and frozen validation score.
+
+The public package no longer exports or contains the old Bayesian solver/initializer.
+
+## Real Myotis workflow
+
+The repository does not bundle the real Myotis WAV/reference files. Therefore no
+empirical real-data pass is claimed without supplied external paths.
+
+Blind run:
+
+```bash
+ASC_MYOTIS_AUDIO=/path/to/myotis.wav \
+ASC_MYOTIS_REFERENCE=/path/to/reference.json \
+ASC_MYOTIS_OUTPUT=/tmp/myotis-blind.json \
+uv run python examples/validate_real_myotis.py
+```
+
+The blind runner records input hashes, channel mapping, timing convention, solver
+configuration, receiver-only conditioning, extracted-event/measurement coverage,
+stratified diagnostics, and post-hoc evaluation. Reference geometry/source states are
+not passed into calibration.
+
+Explicit constrained run:
+
+```bash
+uv run python examples/evaluate_constrained_myotis.py \
+  --audio /path/to/myotis.wav \
+  --reference /path/to/reference.json \
+  --right-angle 3,0,7 \
+  --constraint-provenance "survey drawing / hardware construction"
+```
+
+Blind, constrained, and constraint-ablation outputs remain separate. Planar source
+evaluation reports projected-source and unsigned-height error. Signed source RMS is
+reported only with an explicit source half-space sign relative to the stored reference
+plane normal.
+
+Missing external paths return `not_run/missing_input_paths`; synthetic data are never
+substituted for the real run.
+
+## Full quality commands
+
+```bash
+uv run ruff format --check .
+uv run ruff check .
+uv run ty check src tests examples
+uv run pytest
+uv build
+```
+
+Feature-branch pushes in this repository do not trigger the full GitHub Actions matrix.
+Unless a pull request/manual dispatch has run, local/static checks should not be described
+as the Python 3.11-3.14 CI matrix passing.
 
 ## Interpretation
 
-These results validate the implementation under its current free-field synthetic model. They are **not** a prediction of accuracy in a reverberant room. Real recordings add multipath, channel-response differences, temperature/sound-speed changes, synchronization error, source occlusion, and incorrect direct-path peaks.
-
-Clock-drift variables are implemented but remain experimental because slow trajectory changes and clock drift can be weakly separable without longer recordings or stronger priors.
+These tests validate the implementation under deterministic free-field fixtures and
+explicitly modeled ambiguity cases. They are not a prediction of accuracy in a
+reverberant room. Multipath, source occlusion, channel-response differences, incorrect
+direct-path peaks, synchronization error, weak trajectories, and degenerate receiver
+layouts can all reduce identifiability.
