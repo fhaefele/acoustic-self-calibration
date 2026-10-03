@@ -46,6 +46,7 @@ def _add_solver_options(parser: argparse.ArgumentParser) -> None:
         choices=("general-3d", "receiver2d-source3d"),
         default="general-3d",
     )
+    solver.add_argument("--source-region", choices=("same-side",))
     solver.add_argument("--speed-of-sound", type=float, default=343.0)
     solver.add_argument("--best-sigma-samples", type=float, default=0.35)
     solver.add_argument("--worst-sigma-samples", type=float, default=4.0)
@@ -155,6 +156,7 @@ def _settings_dict(args: argparse.Namespace) -> dict[str, Any]:
         "tdoa_track_weight": args.tdoa_track_weight,
         "use_temporal_tracking": not args.no_temporal_tracking,
         "model": args.model,
+        "source_region": args.source_region,
         "speed_of_sound_mps": args.speed_of_sound,
         "best_sigma_samples": args.best_sigma_samples,
         "worst_sigma_samples": args.worst_sigma_samples,
@@ -229,6 +231,7 @@ def _run_calibrate(args: argparse.Namespace) -> int:
         planar_extra_microphone_rms_m=args.planar_extra_microphone_rms_m,
         angle_constraint=angle_constraint,
         model=model,
+        source_region="same_side" if args.source_region == "same-side" else None,
         refinement=args.refinement,
         refinement_max_nfev=args.refinement_max_nfev,
         refinement_improvement_tolerance=(args.refinement_improvement_tolerance),

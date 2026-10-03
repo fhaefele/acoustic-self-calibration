@@ -48,6 +48,17 @@ class AudioCalibrationResult:
         return self.event_times_s
 
     @property
+    def emission_times_s(self) -> np.ndarray:
+        """Inferred emission-feature times; unresolved events remain NaN."""
+        times = np.full(len(self.event_times_s), np.nan)
+        if self.source_positions_m is not None and self.microphone_positions_m is not None:
+            channel = self.event_channel or 0
+            times = self.event_times_s - np.linalg.norm(
+                self.source_positions_m - self.microphone_positions_m[channel], axis=1
+            ) / self.speed_of_sound_mps
+        return times
+
+    @property
     def event_samples(self) -> np.ndarray | None:
         return self.measurements.event_samples
 
@@ -145,6 +156,7 @@ def calibrate_audio(
     planar_extra_microphone_rms_m: float = 0.02,
     angle_constraint: PlanarAngleConstraint | None = None,
     model: AudioModel = "general_3d",
+    source_region: Literal["same_side"] | None = None,
     refinement: RefinementMode = "none",
     refinement_max_nfev: int = 200,
     refinement_improvement_tolerance: float = 1e-10,
@@ -169,6 +181,12 @@ def calibrate_audio(
         raise ValueError("speed_of_sound must be positive")
     if model not in {"general_3d", "receiver2d_source3d"}:
         raise ValueError("model must be 'general_3d' or 'receiver2d_source3d'")
+    if source_region not in (None, "same_side"):
+        raise ValueError("source_region must be same_side or absent")
+    if source_region is not None and model != "receiver2d_source3d":
+        raise ValueError("same_side requires the planar model")
+    if angle_constraint is not None and model != "receiver2d_source3d":
+        raise ValueError("angle_constraint requires the planar model")
     if refinement not in {"none", "wls", "huber"}:
         raise ValueError("refinement must be 'none', 'wls', or 'huber'")
     if refinement_max_nfev < 1:
@@ -219,6 +237,7 @@ def calibrate_audio(
             metric_acceptance_rms_m=planar_metric_acceptance_rms_m,
             extra_microphone_rms_m=planar_extra_microphone_rms_m,
             angle_constraint=angle_constraint,
+            source_half_space_sign=1 if source_region == "same_side" else None,
         )
     pre_refinement = None
     refinement_diagnostics = None
@@ -232,6 +251,12 @@ def calibrate_audio(
             max_nfev=refinement_max_nfev,
             improvement_tolerance=refinement_improvement_tolerance,
         )
+
+    if source_region == "same_side":
+        from .stratified.solver import _apply_source_half_space_prior
+
+        assert isinstance(calibration, PlanarCalibrationResult)
+        calibration = _apply_source_half_space_prior(calibration, 1)
 
     return AudioCalibrationResult(
         calibration=calibration,

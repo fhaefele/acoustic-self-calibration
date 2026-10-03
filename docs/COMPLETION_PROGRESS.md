@@ -31,3 +31,17 @@ Checks: 5 chirp/benchmark tests passed, including an independent static-path del
 oracle. Ruff and Ty passed. The seed-10 exact planar chirp case recovered all
 20 source states and geometry to numerical precision. Audio accuracy remains a
 later gate; this exact measurement test is not an audio acceptance claim.
+
+## M2 — Public common-side assumption
+
+Audio, WAV and CLI accept the declared common-side assumption and reject its use
+with the spatial model. JSON distinguishes declared orientation from unsigned
+representatives. Finite events keep their sign mask when other events are missing;
+refinement is followed by the same physical orientation check. Strictly on-plane
+events use the existing scale-relative 1e-12 tolerance and reject the strict-side
+input. This assumption cannot detect acoustically invisible side crossings.
+
+Checks: 26 API/CLI/export/planar tests passed; Ruff and Ty passed. A clean seed-10
+chirp trial achieved 1.3 mm microphone and 8.2 mm source RMS, but was classified
+`weakly_identified`, so it does **not** pass the standard acceptance gate. The
+noise/conditioning classification remains an M6 investigation.

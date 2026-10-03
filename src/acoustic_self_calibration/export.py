@@ -180,7 +180,10 @@ def calibration_result_to_dict(
         planar = result.calibration
         source_scene.update(
             {
-                "representation": "positive_plane_normal_representative",
+                "representation": (
+                    "declared_common_side" if planar.source_region_constraint_enforced
+                    else "unsigned_plane_normal_representative"
+                ),
                 "projected_positions_m": _json_array(result.source_projected_positions_m),
                 "unsigned_height_m": _json_array(result.source_unsigned_heights_m),
                 "height_sign_known": _json_array(result.source_height_sign_known),
@@ -218,6 +221,8 @@ def calibration_result_to_dict(
         "measurements": {
             "event_ids": _json_array(result.measurements.event_ids),
             "receiver_event_times_s": _json_array(result.event_times_s),
+            "emission_feature_times_s": _json_array(result.emission_times_s),
+            "emission_time_landmark": "detected_event_feature_minus_fitted_propagation",
             "event_samples": _json_array(result.event_samples),
             "event_channel": result.event_channel,
             "detected_event_count": result.detected_event_count,

@@ -265,7 +265,7 @@ def test_planar_json_exports_unsigned_height_semantics() -> None:
     document = calibration_result_to_dict(result)
 
     source = document["scene"]["source"]
-    assert source["representation"] == "positive_plane_normal_representative"
+    assert source["representation"] == "unsigned_plane_normal_representative"
     assert source["projected_positions_m"] == projected.tolist()
     assert source["unsigned_height_m"] == heights.tolist()
     assert source["height_sign_known"] == [False] * event_count

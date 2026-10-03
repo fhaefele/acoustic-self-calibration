@@ -3468,7 +3468,6 @@ def _apply_source_half_space_prior(
         or result.source_representative_positions_m is None
         or result.source_unsigned_heights_m is None
         or not np.all(np.isfinite(result.microphone_positions_m))
-        or not np.all(np.isfinite(result.source_representative_positions_m))
     ):
         return result
     microphones = np.asarray(result.microphone_positions_m, dtype=float)
@@ -3479,21 +3478,23 @@ def _apply_source_half_space_prior(
     representative = np.array(result.source_representative_positions_m, copy=True)
     signed = (representative - gauge.origin_m) @ normal
     heights = np.asarray(result.source_unsigned_heights_m, dtype=float)
-    # Sources exactly on the plane cannot satisfy a strict half-space.
-    if np.any(np.abs(signed) <= 1e-12 * max(1.0, float(np.max(heights)))):
+    valid = np.isfinite(representative).all(axis=1) & np.isfinite(heights)
+    # Unresolved events have no sign; they do not invalidate completed events.
+    scale = max(1.0, float(np.max(heights[valid]))) if np.any(valid) else 1.0
+    if np.any(valid & (np.abs(signed) <= 1e-12 * scale)):
         raise ValueError("source_half_space_sign requires sources strictly off the plane")
-    flip = signed * source_half_space_sign < 0.0
+    flip = valid & (signed * source_half_space_sign < 0.0)
     if np.any(flip):
         representative[flip] -= 2.0 * signed[flip, None] * normal[None, :]
     representative.setflags(write=False)
-    sign_known = np.ones(len(heights), dtype=bool)
+    sign_known = np.array(valid, dtype=bool)
     sign_known.setflags(write=False)
     return replace(
         result,
         source_representative_positions_m=representative,
         source_height_sign_known=sign_known,
         source_half_space_sign=int(source_half_space_sign),
-        source_region_constraint_enforced=True,
+        source_region_constraint_enforced=bool(np.any(valid)),
     )
 
 

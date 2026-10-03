@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 from scipy.io import wavfile
@@ -68,6 +69,7 @@ def calibrate_wav(
     planar_extra_microphone_rms_m: float = 0.02,
     angle_constraint: PlanarAngleConstraint | None = None,
     model: AudioModel = "general_3d",
+    source_region: Literal["same_side"] | None = None,
     refinement: RefinementMode = "none",
     refinement_max_nfev: int = 200,
     refinement_improvement_tolerance: float = 1e-10,
@@ -101,6 +103,7 @@ def calibrate_wav(
         planar_extra_microphone_rms_m=planar_extra_microphone_rms_m,
         angle_constraint=angle_constraint,
         model=model,
+        source_region=source_region,
         refinement=refinement,
         refinement_max_nfev=refinement_max_nfev,
         refinement_improvement_tolerance=refinement_improvement_tolerance,
