@@ -82,3 +82,23 @@ This distinction prevents propagation delay from shifting reference comparisons.
 Checks: public-frame and numerical frame tests cover origin tolerance, unchanged
 TDOAs, rigid-motion/channel-permutation invariance and exported time semantics.
 Export/evaluation fixtures now declare the same emission-time basis explicitly.
+
+## M4 — Direct room fixtures
+
+The seed-19 rectangular and irregular convex-room fixtures are tested without
+passing boundaries or microphone hulls to calibration. Wall/floor/ceiling
+half-space checks cover trajectory segments; both inside- and outside-microphone-
+hull calls are evaluated. Float chirps and PCM16 use the ordinary public room mode.
+No general nonconvex-cave or echo capability is claimed. Near-floor/ceiling and
+the larger channel/noise matrix remain part of the expanded acceptance run.
+
+M4 status correction: rectangular seed 19 passed the strict gate. Irregular seed
+19 recovered all 20 sources with 1.6 cm source RMS, but returned weakly identified;
+that case therefore fails strict acceptance. Hull tests check geometry and coverage
+independently; the benchmark's `standard_success` still requires `solved`. M4 is
+not fully accepted until that status/conditioning issue and the expanded matrix
+are resolved.
+
+M4 fixture checks: 2 cases passed in 108.57 s (float and PCM16 geometry/coverage
+checks, including both hull categories). Strict status acceptance is evaluated
+separately and remains unmet for the irregular case under legacy timing weights.
