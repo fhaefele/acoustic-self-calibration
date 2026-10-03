@@ -51,6 +51,7 @@ def _add_solver_options(parser: argparse.ArgumentParser) -> None:
     solver.add_argument(
         "--array-config", type=Path, help="declared construction JSON; no coordinates"
     )
+    solver.add_argument("--output-origin-microphone", type=int)
     solver.add_argument("--source-region", choices=("same-side",))
     solver.add_argument("--speed-of-sound", type=float, default=343.0)
     solver.add_argument("--best-sigma-samples", type=float, default=0.35)
@@ -238,6 +239,7 @@ def _run_calibrate(args: argparse.Namespace) -> int:
         angle_constraint=angle_constraint,
         model=model,
         source_region="same_side" if args.source_region == "same-side" else None,
+        output_origin_microphone_id=args.output_origin_microphone,
         array_configuration=(
             None
             if args.array_config is None

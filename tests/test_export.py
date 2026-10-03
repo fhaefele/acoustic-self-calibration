@@ -216,7 +216,7 @@ def test_write_outputs_adds_ground_truth_evaluation(tmp_path: Path) -> None:
     assert result.source_positions_m is not None
     truth = GroundTruth(
         microphone_positions_m=result.microphone_positions_m.copy(),
-        source_times_s=result.event_times_s.copy(),
+        source_times_s=result.emission_times_s.copy(),
         source_positions_m=result.source_positions_m.copy(),
         metadata={"name": "exact"},
     )

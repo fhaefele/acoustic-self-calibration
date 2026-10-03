@@ -170,7 +170,7 @@ def evaluate_against_ground_truth(
         raise ValueError("calibration result has no solved geometry to evaluate")
     estimate = GroundTruth(
         microphone_positions_m=result.microphone_positions_m,
-        source_times_s=result.event_times_s,
+        source_times_s=result.emission_times_s,
         source_positions_m=result.source_positions_m,
         metadata={},
         scene_role="estimate",

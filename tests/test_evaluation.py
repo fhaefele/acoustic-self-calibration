@@ -103,7 +103,7 @@ def _result_and_truth() -> tuple[AudioCalibrationResult, GroundTruth]:
     )
     truth = GroundTruth(
         microphone_positions_m=microphones,
-        source_times_s=times,
+        source_times_s=result.emission_times_s,
         source_positions_m=source,
         metadata={},
     )
@@ -166,7 +166,7 @@ def test_evaluate_scenes_preserves_overlap_semantics() -> None:
     assert result.source_positions_m is not None
     estimate = GroundTruth(
         microphone_positions_m=result.microphone_positions_m,
-        source_times_s=result.event_times_s,
+        source_times_s=result.emission_times_s,
         source_positions_m=result.source_positions_m,
         metadata={},
         scene_role="estimate",

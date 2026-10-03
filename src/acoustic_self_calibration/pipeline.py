@@ -12,6 +12,7 @@ from .events import (
     estimate_event_tdoa_measurements,
 )
 from .measurements import EventTDOAMeasurements
+from .output_frame import MicrophoneFrame, select_microphone_frame, transform_calibration
 from .stratified.constraints import PlanarAngleConstraint
 from .stratified.refinement import RefinementDiagnostics, refine_calibration
 from .stratified.solver import (
@@ -39,6 +40,7 @@ class AudioCalibrationResult:
     pre_refinement_calibration: StratifiedCalibrationResult | PlanarCalibrationResult | None = None
     refinement_diagnostics: RefinementDiagnostics | None = None
     array_configuration: ArrayConfiguration | None = None
+    coordinate_frame: MicrophoneFrame | None = None
 
     @property
     def event_times_s(self) -> np.ndarray:
@@ -164,6 +166,7 @@ def calibrate_audio(
     model: AudioModel = "general_3d",
     array_configuration: ArrayConfiguration | None = None,
     source_region: Literal["same_side"] | None = None,
+    output_origin_microphone_id: int | None = None,
     refinement: RefinementMode = "none",
     refinement_max_nfev: int = 200,
     refinement_improvement_tolerance: float = 1e-10,
@@ -184,6 +187,10 @@ def calibrate_audio(
         raise ValueError("sample_rate must be positive")
     if not np.all(np.isfinite(values)):
         raise ValueError("audio contains non-finite samples")
+    if output_origin_microphone_id is not None and output_origin_microphone_id not in range(
+        values.shape[1]
+    ):
+        raise ValueError("output origin microphone ID is absent")
     if speed_of_sound <= 0.0:
         raise ValueError("speed_of_sound must be positive")
     if array_configuration is not None:
@@ -319,6 +326,24 @@ def calibrate_audio(
         assert isinstance(calibration, PlanarCalibrationResult)
         calibration = _apply_source_half_space_prior(calibration, 1)
 
+    frame = None
+    if (
+        calibration.microphone_positions_m is not None
+        and np.isfinite(calibration.microphone_positions_m).all()
+    ):
+        sources = (
+            calibration.source_representative_positions_m
+            if isinstance(calibration, PlanarCalibrationResult)
+            else calibration.source_positions_m
+        )
+        frame = select_microphone_frame(
+            calibration.microphone_positions_m,
+            measurements.microphone_ids,
+            origin_id=output_origin_microphone_id,
+            common_side_sources=sources if source_region else None,
+        )
+        calibration = transform_calibration(calibration, frame)
+        pre_refinement = transform_calibration(pre_refinement, frame)
     return AudioCalibrationResult(
         calibration=calibration,
         measurements=measurements,
@@ -330,4 +355,5 @@ def calibrate_audio(
         pre_refinement_calibration=pre_refinement,
         refinement_diagnostics=refinement_diagnostics,
         array_configuration=array_configuration,
+        coordinate_frame=frame,
     )

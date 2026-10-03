@@ -172,7 +172,8 @@ def calibration_result_to_dict(
     """Build deterministic JSON for solved, ambiguous, or failed stratified results."""
     calibration = result.calibration
     source_scene: dict[str, Any] = {
-        "times_s": _json_array(result.event_times_s),
+        "times_s": _json_array(result.emission_times_s),
+        "time_basis": "emission_feature",
         "positions_m": _json_array(result.source_positions_m),
         "std_m": None,
     }
@@ -212,6 +213,9 @@ def calibration_result_to_dict(
         "settings": {} if settings is None else settings,
         "calibration": {
             "backend": "stratified_tdoa",
+            "coordinate_frame": (
+                None if result.coordinate_frame is None else result.coordinate_frame.to_dict()
+            ),
             "model": result.model,
             "array_configuration": (
                 None if result.array_configuration is None else result.array_configuration.to_dict()
@@ -283,7 +287,7 @@ def calibration_result_to_dict(
 
             document["evaluation"] = evaluate_planar_myotis_observables(
                 calibration,
-                result.event_times_s,
+                result.emission_times_s,
                 ground_truth,
             )
         else:

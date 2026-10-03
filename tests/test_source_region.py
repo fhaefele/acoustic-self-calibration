@@ -8,7 +8,6 @@ from scipy.io import wavfile
 from acoustic_self_calibration.chirps import make_chirp_scene
 from acoustic_self_calibration.cli import build_parser
 from acoustic_self_calibration.export import calibration_result_to_dict
-from acoustic_self_calibration.geometry import select_coordinate_gauge
 from acoustic_self_calibration.pipeline import calibrate_audio
 from acoustic_self_calibration.stratified.solver import _apply_source_half_space_prior
 from acoustic_self_calibration.wav import calibrate_wav
@@ -36,8 +35,7 @@ def test_common_side_public_audio_wav_and_refinement(tmp_path):
     assert audio.source_height_sign_known is not None
     assert audio.source_unsigned_heights_m is not None
     assert np.all(audio.source_height_sign_known)
-    gauge = select_coordinate_gauge(audio.microphone_positions_m)
-    assert np.all((audio.source_positions_m - gauge.origin_m) @ gauge.basis[:, 2] > 0)
+    assert np.all(audio.source_positions_m[:, 2] > 0)
     document = calibration_result_to_dict(audio)
     assert document["scene"]["source"]["representation"] == "declared_common_side"
     assert document["scene"]["source"]["height_sign_known"] == [True] * 20

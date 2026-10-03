@@ -65,3 +65,20 @@ Checks: 16 focused tests passed, including direct 60/75/90-degree cross/T chirps
 All tested recovery scenes met 5/10 cm and complete-event coverage. Ruff/Ty passed.
 The broader preregistered channel/event/noise matrix remains an M6/M8 gate;
 these focused checks alone do not establish full acceptance.
+
+## M3 — Microphone-relative output frame
+
+The public audio/WAV result defaults to microphone ID 0 as origin (or accepts
+`--output-origin-microphone`). Baselines use distance and ID tie breaks, so the
+first three channels may be collinear. Declared common-side sources occupy z>0;
+planar microphones occupy z=0. JSON includes origin/axis IDs, units and the rigid
+transform. Final, selected-candidate and refinement-audit scenes receive that
+same transform; an audit origin can differ after refinement and is labeled.
+
+Source-state timestamps now represent inferred emission features rather than
+receiver arrivals. Receiver event times remain in the measurements section.
+This distinction prevents propagation delay from shifting reference comparisons.
+
+Checks: public-frame and numerical frame tests cover origin tolerance, unchanged
+TDOAs, rigid-motion/channel-permutation invariance and exported time semantics.
+Export/evaluation fixtures now declare the same emission-time basis explicitly.
