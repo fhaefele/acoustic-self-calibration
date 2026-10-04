@@ -102,3 +102,23 @@ are resolved.
 M4 fixture checks: 2 cases passed in 108.57 s (float and PCM16 geometry/coverage
 checks, including both hull categories). Strict status acceptance is evaluated
 separately and remains unmet for the irregular case under legacy timing weights.
+
+## M5 — Public Myotis recovery and ablation
+
+`examples/validate_myotis_public.py` freezes a public WAV result and runs an
+arbitrary-planar ablation on the same measurements before loading the evaluation
+reference. A reference-boundary regression fails if calibration attempts to read
+that reference. Dedicated fixture absence fails instead of skipping. The JSON
+report records the supplied 90-degree rays (3→0 and 3→11) and the unverified
+acquisition/construction provenance.
+
+Committed fixture outcome: microphone RMS 0.0513 m, source RMS 0.1718 m, fitted
+TDOA RMS 5.14 us and frozen held-out RMS 36.11 us. There are 43 detected peaks,
+41 localized sources, two unresolved IDs (41, 42), and 40 sources in reference
+time overlap. Source comparisons use inferred emission features and one global
+normal reflection; individual events are never reflected toward truth.
+
+**The strengthened Myotis acceptance is not met:** status is weakly identified.
+The acceptance command returns exit code 2 and the archived report sets accepted
+false. Removing construction constraints does not produce a uniquely solved
+scene. Independent physical construction evidence remains unavailable.
