@@ -210,3 +210,19 @@ The initial 96-case float/PCM development subset completed with 94 passes and
 two failures: rectangular room, 12 channels, seed 12, 40 dB (float and PCM).
 Those remain real M6 failures; clean versions passed and they are not hidden by
 the successful PR subset. The full noisy-arrival matrix remains in progress.
+
+### M6 seed admission tolerance
+
+The two 40 dB room failures were traced past detection to algebraic completion:
+both retained 20 calls and had about 10.1 us extracted TDOA error, with declared
+median sigma 10.3 us. A binary range-sigma cutoff nevertheless applied a 20 um
+exact-data seed tolerance. Admission now scales continuously as
+`max(20 um, min(0.1 m, 20 * median_sigma_s * sound_speed))`. This is an initial
+algebraic basin tolerance; final validation, precision and accuracy gates remain
+unchanged. The old broad-noise cap stays 0.1 m.
+
+Both float and PCM failures now pass: microphone RMS about 2.73 mm, source RMS
+about 3.15 mm, complete coverage and solved status. The planted regression passed
+in 11.45 s. The original 94/96 report remains intact alongside the two-case
+correction report. The post-change non-audio suite passed 300 tests in 592.23 s;
+the final legacy audio acceptance run is recorded separately when complete.

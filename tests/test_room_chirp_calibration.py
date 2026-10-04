@@ -58,3 +58,27 @@ def test_direct_wall_chirps_recover_sources_outside_mic_hull(layout, tmp_path):
     assert pcm_metrics["matched_events"] == 20
     # This tests hull-independent geometry accuracy. The separate acceptance
     # runner additionally requires solved status; weak results do not pass it.
+
+
+def test_low_noise_room_chirps_do_not_receive_exact_seed_tolerance():
+    # Development failure: both float and PCM rejected every algebraic seed
+    # at 40 dB despite accurate arrival estimates. No truth enters calibration.
+    scene = make_chirp_scene(12, geometry="room", layout="rectangular", seed=12)
+    audio = scene.audio.copy()
+    rng = np.random.default_rng(12)
+    for channel in range(12):
+        values = audio[:, channel]
+        active = abs(values) > 0.01 * np.max(abs(values))
+        audio[:, channel] += rng.normal(
+            scale=np.sqrt(np.mean(values[active] ** 2) / 1e4), size=len(audio)
+        )
+    result = calibrate_audio(
+        audio,
+        scene.sample_rate_hz,
+        array_configuration=ArrayConfiguration("room"),
+        max_tau_s=0.03,
+        tdoa_template_s=0.002,
+        timing_uncertainty="waveform",
+    )
+    row = scene_metrics(result.calibration, scene, result.emission_times_s)
+    assert row["standard_success"], (result.status, row, result.calibration.diagnostics)

@@ -747,15 +747,16 @@ def _complete_geometry(
         return None
 
     # Algebraic completion amplifies timing noise before nonlinear refinement.
-    # Audio-extracted TDOAs carry ~6us RMS with median sigma ~60us (range
-    # uncertainty > 5e-3 m) and admit approximate roots within the deterministic
-    # polish basin; exact/low-noise inputs keep the tight 2e-5 m gate so a
-    # single contaminated hypothesis cannot enter the polish basin.
+    # The algebraic seed can amplify arrival noise before nonlinear polish.
+    # Scale its admission tolerance continuously with declared uncertainty;
+    # a noisy waveform estimate below the former 5 mm cutoff must not receive
+    # the 20 um exact-data tolerance. Final validation/uncertainty gates remain
+    # unchanged. The 0.1 m cap preserves the existing broad-noise regime.
     valid_sigma = measurements.sigma_s[measurements.valid]
     valid_sigma = valid_sigma[np.isfinite(valid_sigma)]
     median_sigma_s = float(np.median(valid_sigma)) if valid_sigma.size else 2e-6
     sigma_range_m = median_sigma_s * speed_of_sound
-    acceptance_rms_m = 0.1 if sigma_range_m > 5e-3 else 2e-5
+    acceptance_rms_m = max(2e-5, min(0.1, 20.0 * sigma_range_m))
     membership_tolerance = min(5e-3, max(1e-7, acceptance_rms_m / 4.0))
     receiver_inlier_tolerance_m = max(1e-5, acceptance_rms_m)
 
