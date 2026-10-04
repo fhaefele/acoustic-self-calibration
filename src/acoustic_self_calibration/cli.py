@@ -32,6 +32,7 @@ def _right_angle_receivers(value: str) -> tuple[int, int, int]:
 def _add_solver_options(parser: argparse.ArgumentParser) -> None:
     audio = parser.add_argument_group("event detection and TDOA")
     audio.add_argument("--event-channel", type=int)
+    audio.add_argument("--microphone-ids", help="comma-separated stable IDs in WAV channel order")
     audio.add_argument("--event-smooth-ms", type=float, default=0.3)
     audio.add_argument("--event-min-gap-ms", type=float, default=3.0)
     audio.add_argument("--event-prominence", type=float, default=0.003)
@@ -54,6 +55,9 @@ def _add_solver_options(parser: argparse.ArgumentParser) -> None:
     solver.add_argument("--output-origin-microphone", type=int)
     solver.add_argument("--source-region", choices=("same-side",))
     solver.add_argument("--speed-of-sound", type=float, default=343.0)
+    solver.add_argument(
+        "--timing-uncertainty", choices=("confidence", "waveform"), default="confidence"
+    )
     solver.add_argument("--best-sigma-samples", type=float, default=0.35)
     solver.add_argument("--worst-sigma-samples", type=float, default=4.0)
     solver.add_argument("--receiver-subset-budget", type=int, default=3)
@@ -152,6 +156,7 @@ def build_parser() -> argparse.ArgumentParser:
 def _settings_dict(args: argparse.Namespace) -> dict[str, Any]:
     return {
         "event_channel": args.event_channel,
+        "microphone_ids": args.microphone_ids,
         "event_smooth_s": args.event_smooth_ms / 1000.0,
         "event_min_gap_s": args.event_min_gap_ms / 1000.0,
         "event_relative_prominence": args.event_prominence,
@@ -167,6 +172,7 @@ def _settings_dict(args: argparse.Namespace) -> dict[str, Any]:
         "speed_of_sound_mps": args.speed_of_sound,
         "best_sigma_samples": args.best_sigma_samples,
         "worst_sigma_samples": args.worst_sigma_samples,
+        "timing_uncertainty": args.timing_uncertainty,
         "receiver_subset_budget": args.receiver_subset_budget,
         "event_subset_budget": args.event_subset_budget,
         "root_start_count": args.root_start_count,
@@ -216,6 +222,11 @@ def _run_calibrate(args: argparse.Namespace) -> int:
     result = calibrate_wav(
         args.wav,
         event_channel=args.event_channel,
+        microphone_ids=(
+            None
+            if args.microphone_ids is None
+            else tuple(int(i) for i in args.microphone_ids.split(","))
+        ),
         event_smooth_s=args.event_smooth_ms / 1000.0,
         event_min_gap_s=args.event_min_gap_ms / 1000.0,
         event_relative_prominence=args.event_prominence,
@@ -228,6 +239,7 @@ def _run_calibrate(args: argparse.Namespace) -> int:
         speed_of_sound=args.speed_of_sound,
         best_sigma_samples=args.best_sigma_samples,
         worst_sigma_samples=args.worst_sigma_samples,
+        timing_uncertainty=args.timing_uncertainty,
         receiver_subset_budget=args.receiver_subset_budget,
         event_subset_budget=args.event_subset_budget,
         root_start_count=args.root_start_count,
@@ -249,9 +261,6 @@ def _run_calibrate(args: argparse.Namespace) -> int:
         refinement_max_nfev=args.refinement_max_nfev,
         refinement_improvement_tolerance=(args.refinement_improvement_tolerance),
     )
-    if result.microphone_positions_m is None or result.source_positions_m is None:
-        print(f"calibration status: {result.status}", file=sys.stderr)
-        return 2
 
     paths = write_calibration_outputs(
         result,
@@ -261,12 +270,20 @@ def _run_calibrate(args: argparse.Namespace) -> int:
         ground_truth=reference,
     )
     print(f"status: {result.status}")
-    print(f"microphones: {len(result.microphone_positions_m)}")
-    print(f"source states: {len(result.source_positions_m)}")
+    print(
+        f"microphones: {0 if result.microphone_positions_m is None else len(result.microphone_positions_m)}"
+    )
+    print(
+        f"source states: {0 if result.source_positions_m is None else len(result.source_positions_m)}"
+    )
     if result.rms_tdoa_residual_s is not None:
         print(f"TDOA RMS residual: {1e6 * result.rms_tdoa_residual_s:.3f} us")
     print(f"JSON: {paths.json}")
-    print(f"figure: {paths.figure}")
+    print(
+        f"figure: {paths.figure}"
+        if result.source_positions_m is not None
+        else "figure omitted: geometry unavailable"
+    )
     return 0 if result.status == "solved" else 2
 
 
@@ -312,7 +329,30 @@ def _run_compare(args: argparse.Namespace) -> int:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    return int(args.handler(args))
+    try:
+        return int(args.handler(args))
+    except (OSError, ValueError, np.linalg.LinAlgError) as error:
+        print(f"{args.command} failed: {error}", file=sys.stderr)
+        if args.command == "calibrate":
+            output = args.output or args.wav.with_suffix("").with_name(
+                args.wav.stem + "_calibration"
+            )
+            output = output.with_suffix(".json")
+            output.parent.mkdir(parents=True, exist_ok=True)
+            insufficient = "detected only" in str(error) or "fewer than" in str(error)
+            document = {
+                "schema_version": 1,
+                "scene_role": "estimate",
+                "scene": None,
+                "input": {"wav_path": str(args.wav)},
+                "settings": _settings_dict(args),
+                "calibration": {"status": "insufficient_data" if insufficient else "failed"},
+                "diagnostics": {"exception_type": type(error).__name__, "reason": str(error)},
+                "visualization": {"written": False, "omission_reason": "geometry_unavailable"},
+            }
+            output.write_text(json.dumps(document, indent=2, allow_nan=False) + "\n")
+            print(f"JSON: {output}")
+        return 2
 
 
 if __name__ == "__main__":

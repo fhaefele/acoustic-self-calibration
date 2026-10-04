@@ -657,12 +657,41 @@ def _localization_receivers_for_event(
     event: int,
     *,
     receiver_count: int = 8,
+    microphone_positions_m: np.ndarray | None = None,
 ) -> tuple[int, ...] | None:
     valid_nonreference = [
         receiver for receiver in range(1, receiver_count) if primitive_valid[receiver, event]
     ]
     if len(valid_nonreference) < 4:
         return None
+    if microphone_positions_m is not None:
+        # Choose completion coordinates using microphone geometry alone. The
+        # held-out timing values remain untouched by subset selection.
+        delta = (
+            np.asarray(microphone_positions_m)[valid_nonreference, :2]
+            - microphone_positions_m[0, :2]
+        )
+        first_singular = np.linalg.svd(delta[:4], compute_uv=False)
+        # A noisy estimate of a collinear arm is numerically full rank. Retain
+        # the original subset only when its in-plane condition number is <20.
+        # This is subset selection, not a relaxation of uncertainty acceptance.
+        if first_singular[-1] > 0.05 * first_singular[0]:
+            return (0, *valid_nonreference[:4])
+        features = np.column_stack([delta, delta**2, delta[:, 0] * delta[:, 1]])
+        scales = np.linalg.norm(features, axis=0)
+        residuals = features / np.maximum(scales, np.finfo(float).eps)
+        selected: list[int] = []
+        for _ in range(4):
+            scores = np.sum(residuals**2, axis=1)
+            scores[selected] = -1.0
+            choice = int(np.argmax(scores))
+            selected.append(choice)
+            direction = residuals[choice].copy()
+            norm = np.linalg.norm(direction)
+            if norm > np.finfo(float).eps:
+                direction /= norm
+                residuals -= np.outer(residuals @ direction, direction)
+        return (0, *(valid_nonreference[index] for index in selected))
     return (0, *valid_nonreference[:4])
 
 
@@ -2604,6 +2633,7 @@ def calibrate_planar_tdoa_8mic(
                 localization_receivers = _localization_receivers_for_event(
                     primitive_valid,
                     event,
+                    microphone_positions_m=microphones,
                 )
                 if localization_receivers is None:
                     if event in validation_set:
@@ -2620,6 +2650,25 @@ def calibrate_planar_tdoa_8mic(
                         unresolved_validation.append(int(measurements.event_ids[event]))
                     continue
                 if localized_source.linear_rank < 3:
+                    if event in validation_set:
+                        unresolved_validation.append(int(measurements.event_ids[event]))
+                    continue
+                local_point = np.r_[
+                    localized_source.projected_position_m, localized_source.unsigned_height_m
+                ]
+                local_ranges = np.linalg.norm(microphones[receiver_ids] - local_point, axis=1)
+                local_residual_s = (
+                    (local_ranges - local_ranges[0]) - arrivals_m[receiver_ids, event]
+                ) / speed_of_sound
+                local_columns = np.asarray(
+                    [receiver - 1 for receiver in localization_receivers if receiver != 0],
+                    dtype=int,
+                )
+                local_sigma_s = float(np.median(measurements.sigma_s[event, local_columns]))
+                if float(np.sqrt(np.mean(local_residual_s[1:] ** 2))) > max(
+                    5 * local_sigma_s, metric_acceptance_rms_m / speed_of_sound
+                ):
+                    rejections.append("planar_source_completion_fit_failed")
                     if event in validation_set:
                         unresolved_validation.append(int(measurements.event_ids[event]))
                     continue

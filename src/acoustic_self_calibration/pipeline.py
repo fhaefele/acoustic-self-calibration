@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 import numpy as np
@@ -141,6 +141,7 @@ def calibrate_audio(
     sample_rate: int,
     *,
     event_channel: int | None = None,
+    microphone_ids: tuple[int, ...] | None = None,
     event_smooth_s: float = 0.0003,
     event_min_gap_s: float = 0.003,
     event_relative_prominence: float = 0.003,
@@ -154,6 +155,7 @@ def calibrate_audio(
     speed_of_sound: float = 343.0,
     best_sigma_samples: float = 0.35,
     worst_sigma_samples: float = 4.0,
+    timing_uncertainty: Literal["confidence", "waveform"] = "confidence",
     receiver_subset_budget: int = 3,
     event_subset_budget: int = 2,
     root_start_count: int = 32,
@@ -187,14 +189,15 @@ def calibrate_audio(
         raise ValueError("sample_rate must be positive")
     if not np.all(np.isfinite(values)):
         raise ValueError("audio contains non-finite samples")
-    if output_origin_microphone_id is not None and output_origin_microphone_id not in range(
-        values.shape[1]
-    ):
+    ids = tuple(range(values.shape[1])) if microphone_ids is None else tuple(microphone_ids)
+    if len(ids) != values.shape[1] or len(set(ids)) != len(ids) or any(i < 0 for i in ids):
+        raise ValueError("microphone_ids must be distinct non-negative IDs matching audio channels")
+    if output_origin_microphone_id is not None and output_origin_microphone_id not in ids:
         raise ValueError("output origin microphone ID is absent")
     if speed_of_sound <= 0.0:
         raise ValueError("speed_of_sound must be positive")
     if array_configuration is not None:
-        array_configuration.validate_ids(tuple(range(values.shape[1])))
+        array_configuration.validate_ids(ids)
         if model != "general_3d" and model != array_configuration.model:
             raise ValueError("model conflicts with array configuration")
         model = array_configuration.model
@@ -240,7 +243,14 @@ def calibrate_audio(
         use_temporal_tracking=use_temporal_tracking,
         best_sigma_samples=best_sigma_samples,
         worst_sigma_samples=worst_sigma_samples,
+        timing_uncertainty=timing_uncertainty,
     )
+    if microphone_ids is not None:
+        measurements = replace(
+            measurements,
+            microphone_ids=ids,
+            microphone_pairs=tuple((ids[a], ids[b]) for a, b in measurements.microphone_pairs),
+        )
     if model == "general_3d":
         calibration: StratifiedCalibrationResult | PlanarCalibrationResult = calibrate_tdoa(
             measurements,
@@ -287,8 +297,6 @@ def calibrate_audio(
         and array_configuration.name in {"cross", "t"}
         and array_configuration.angle_deg is None
     ):
-        from dataclasses import replace
-
         assert isinstance(calibration, PlanarCalibrationResult)
         calibration = replace(
             calibration,
@@ -326,6 +334,27 @@ def calibrate_audio(
         assert isinstance(calibration, PlanarCalibrationResult)
         calibration = _apply_source_half_space_prior(calibration, 1)
 
+    sources_for_coverage = (
+        calibration.source_representative_positions_m
+        if isinstance(calibration, PlanarCalibrationResult)
+        else calibration.source_positions_m
+    )
+    if calibration.status == "solved" and (
+        sources_for_coverage is None
+        or not np.isfinite(sources_for_coverage).all()
+        or len(measurements.event_ids) != len(detection.event_samples)
+    ):
+        calibration = replace(
+            calibration,
+            status="weakly_identified",
+            diagnostics=replace(
+                calibration.diagnostics,
+                rejection_reasons=(
+                    *calibration.diagnostics.rejection_reasons,
+                    "incomplete_source_coverage",
+                ),
+            ),
+        )
     frame = None
     if (
         calibration.microphone_positions_m is not None

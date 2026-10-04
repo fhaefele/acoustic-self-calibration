@@ -1,0 +1,1144 @@
+{
+  "schema_version": 1,
+  "source_diff_sha256": "64f373ab798c2f09a6aa2f5614d385663e3c4c26859dbf0fd90fd63d72309b46",
+  "suite": "pr",
+  "revision": "d1b611da1cdcf1ba11a0f8a6a7c433bc489815a6",
+  "uv_lock_sha256": "cb5a4f0667dfde4a8723a048c6fc165d1bc80e78b449a67cc7165c19864efceb",
+  "manifest_sha256": "f20fa3f6372dfe1263519b02dae9bf959c92906c572bc24993f262d15ca52e5e",
+  "manifest": {
+    "schema_version": 1,
+    "development_seeds": [
+      10,
+      11,
+      12
+    ],
+    "evaluation_seeds": [
+      30,
+      31,
+      32,
+      33,
+      34
+    ],
+    "microphone_counts": [
+      8,
+      12,
+      16,
+      24
+    ],
+    "grid_microphone_counts": [
+      8,
+      9,
+      12,
+      16,
+      24
+    ],
+    "event_counts": [
+      20,
+      40
+    ],
+    "planar_spans_m": [
+      2.0,
+      4.0
+    ],
+    "standard_scenarios": [
+      "generic",
+      "star",
+      "cross90",
+      "cross60",
+      "cross75",
+      "t90",
+      "t60",
+      "t75",
+      "grid-free",
+      "grid-equal",
+      "room-rectangular",
+      "room-irregular"
+    ],
+    "negative_scenarios": [
+      "blind-cross",
+      "thin-grid"
+    ],
+    "stress_scenarios": [
+      "near-cross",
+      "room-floor-ceiling",
+      "rapid"
+    ],
+    "stages": [
+      "exact",
+      "arrival-noise",
+      "float-clean",
+      "float-40db",
+      "pcm-clean",
+      "pcm-40db"
+    ],
+    "speed_of_sound_mps": 343.0,
+    "sample_rate_hz": 48000,
+    "arrival_noise_sigma_s": 2e-06,
+    "chirp": {
+      "start_hz": 18000,
+      "end_hz": 4000,
+      "duration_s": 0.0015,
+      "sweep": "linear",
+      "vary_calls": true
+    },
+    "snr_definition": "Clean per-channel power where amplitude exceeds 1% of channel peak; renderer/evaluator only",
+    "limits": {
+      "microphone_rms_m": 0.05,
+      "source_rms_m": 0.1,
+      "tdoa_rms_s": 6e-05,
+      "complete_coverage": true,
+      "required_status": "solved"
+    },
+    "audio_options": {
+      "max_tau_s": 0.03,
+      "tdoa_template_s": 0.002,
+      "timing_uncertainty": "waveform",
+      "best_sigma_samples": 0.35,
+      "worst_sigma_samples": 4.0,
+      "use_temporal_tracking": true
+    },
+    "pr_subset": {
+      "seeds": [
+        10
+      ],
+      "counts": [
+        8,
+        9
+      ],
+      "events": [
+        20
+      ],
+      "span_m": [
+        2.0
+      ],
+      "scenarios": [
+        "star",
+        "cross90",
+        "grid-free",
+        "room-rectangular"
+      ],
+      "stages": [
+        "exact",
+        "float-clean"
+      ]
+    }
+  },
+  "expected_case_ids": [
+    "star/8/20/2.0/10/exact",
+    "star/8/20/2.0/10/float-clean",
+    "cross90/8/20/2.0/10/exact",
+    "cross90/8/20/2.0/10/float-clean",
+    "grid-free/8/20/2.0/10/exact",
+    "grid-free/8/20/2.0/10/float-clean",
+    "grid-free/9/20/2.0/10/exact",
+    "grid-free/9/20/2.0/10/float-clean",
+    "room-rectangular/8/20/2.0/10/exact",
+    "room-rectangular/8/20/2.0/10/float-clean"
+  ],
+  "results": [
+    {
+      "scenario": "cross90",
+      "microphones": 8,
+      "events": 20,
+      "span": 2.0,
+      "seed": 10,
+      "stage": "exact",
+      "case_id": "cross90/8/20/2.0/10/exact",
+      "standard_success": false,
+      "configuration": {
+        "name": "cross",
+        "provenance": "synthetic declared two-line construction",
+        "arms": [
+          [
+            0,
+            1,
+            2,
+            3,
+            4
+          ],
+          [
+            2,
+            5,
+            6,
+            7
+          ]
+        ],
+        "rays": [
+          [
+            2,
+            4
+          ],
+          [
+            2,
+            7
+          ]
+        ],
+        "angle_deg": 90,
+        "grid_slots": [],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 20,
+      "matched_events": 0,
+      "unresolved_events": 20,
+      "source_rms_error_m": null,
+      "source_errors_m": [],
+      "microphone_rms_error_m": null,
+      "microphone_max_error_m": null,
+      "status": "failed",
+      "tdoa_rms_s": null,
+      "rejection_reasons": [
+        "constraint_receivers_not_in_subset",
+        "planar_validation_unresolved",
+        "planar_validation_unresolved",
+        "planar_validation_unresolved",
+        "planar_validation_unresolved"
+      ],
+      "acceptance_class": "standard",
+      "accepted": false,
+      "elapsed_s": 1.6866148650005925,
+      "process_peak_rss_kib": 199840
+    },
+    {
+      "scenario": "cross90",
+      "microphones": 8,
+      "events": 20,
+      "span": 2.0,
+      "seed": 10,
+      "stage": "float-clean",
+      "case_id": "cross90/8/20/2.0/10/float-clean",
+      "standard_success": false,
+      "configuration": {
+        "name": "cross",
+        "provenance": "synthetic declared two-line construction",
+        "arms": [
+          [
+            0,
+            1,
+            2,
+            3,
+            4
+          ],
+          [
+            2,
+            5,
+            6,
+            7
+          ]
+        ],
+        "rays": [
+          [
+            2,
+            4
+          ],
+          [
+            2,
+            7
+          ]
+        ],
+        "angle_deg": 90,
+        "grid_slots": [],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 20,
+      "matched_events": 19,
+      "unresolved_events": 1,
+      "source_rms_error_m": 0.006701121060556264,
+      "source_errors_m": [
+        0.00854248283258284,
+        0.008680794283814833,
+        0.008551050633019747,
+        0.007281435634594763,
+        0.01091579121243884,
+        0.006044023490114566,
+        0.007731607935156364,
+        0.004944379047188114,
+        0.0049633532126239525,
+        0.0038333597553103864,
+        0.004494202169259778,
+        0.004288826572101892,
+        0.005472548063999674,
+        0.004529912979669383,
+        0.006939037718356639,
+        0.005633652256128005,
+        0.00677540127505637,
+        0.0050716554017834386,
+        0.007675270213965788
+      ],
+      "microphone_rms_error_m": 0.001029871040316964,
+      "microphone_max_error_m": 0.0014276552976036755,
+      "matched_event_ids": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "status": "weakly_identified",
+      "tdoa_rms_s": 3.7761890913983294e-07,
+      "rejection_reasons": [
+        "constraint_receivers_not_in_subset",
+        "planar_validation_unresolved",
+        "planar_receiver_completion_failure",
+        "planar_receiver_completion_failure",
+        "incomplete_source_coverage"
+      ],
+      "acceptance_class": "standard",
+      "accepted": false,
+      "elapsed_s": 2.107749450020492,
+      "process_peak_rss_kib": 205164
+    },
+    {
+      "scenario": "grid-free",
+      "microphones": 8,
+      "events": 20,
+      "span": 2.0,
+      "seed": 10,
+      "stage": "exact",
+      "case_id": "grid-free/8/20/2.0/10/exact",
+      "standard_success": true,
+      "configuration": {
+        "name": "grid",
+        "provenance": "synthetic declared grid topology",
+        "arms": null,
+        "rays": null,
+        "angle_deg": null,
+        "grid_slots": [
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            1,
+            0,
+            1
+          ],
+          [
+            2,
+            0,
+            2
+          ],
+          [
+            3,
+            1,
+            0
+          ],
+          [
+            4,
+            1,
+            1
+          ],
+          [
+            5,
+            1,
+            2
+          ],
+          [
+            6,
+            2,
+            0
+          ],
+          [
+            7,
+            2,
+            1
+          ]
+        ],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 20,
+      "matched_events": 20,
+      "unresolved_events": 0,
+      "source_rms_error_m": 3.721509675883332e-15,
+      "source_errors_m": [
+        3.0485681130056856e-15,
+        7.2377686124476805e-16,
+        7.753499058881799e-15,
+        4.670860135994077e-15,
+        1.6504651808933464e-15,
+        3.66205343881779e-15,
+        2.1006405424489063e-15,
+        2.7307875685720004e-15,
+        2.4913624836163812e-15,
+        1.1525250030449997e-15,
+        1.3337124490069256e-15,
+        1.3453761964535175e-15,
+        8.688869536365456e-16,
+        1.5857156540161844e-15,
+        6.377745716588144e-16,
+        2.2259902427727487e-15,
+        4.449557262054371e-16,
+        8.941614951020223e-15,
+        7.214100729072864e-15,
+        2.299528920302938e-15
+      ],
+      "microphone_rms_error_m": 4.001763047405464e-16,
+      "microphone_max_error_m": 6.684427777288335e-16,
+      "matched_event_ids": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "status": "solved",
+      "tdoa_rms_s": 9.358986587063177e-19,
+      "rejection_reasons": [],
+      "acceptance_class": "standard",
+      "accepted": true,
+      "elapsed_s": 1.7132099559821654,
+      "process_peak_rss_kib": 200028
+    },
+    {
+      "scenario": "grid-free",
+      "microphones": 8,
+      "events": 20,
+      "span": 2.0,
+      "seed": 10,
+      "stage": "float-clean",
+      "case_id": "grid-free/8/20/2.0/10/float-clean",
+      "standard_success": true,
+      "configuration": {
+        "name": "grid",
+        "provenance": "synthetic declared grid topology",
+        "arms": null,
+        "rays": null,
+        "angle_deg": null,
+        "grid_slots": [
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            1,
+            0,
+            1
+          ],
+          [
+            2,
+            0,
+            2
+          ],
+          [
+            3,
+            1,
+            0
+          ],
+          [
+            4,
+            1,
+            1
+          ],
+          [
+            5,
+            1,
+            2
+          ],
+          [
+            6,
+            2,
+            0
+          ],
+          [
+            7,
+            2,
+            1
+          ]
+        ],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 20,
+      "matched_events": 20,
+      "unresolved_events": 0,
+      "source_rms_error_m": 0.0012357836039553261,
+      "source_errors_m": [
+        0.0007770840509890916,
+        0.0004424023575267553,
+        0.003983662378468228,
+        0.0006651822169887652,
+        0.00039098103335013905,
+        0.0013833737112636023,
+        0.0007689446394947511,
+        0.001081421386747798,
+        0.0007544848341007695,
+        0.0006453264198655116,
+        0.0007848956244301527,
+        0.0007225748165717821,
+        0.00031495168923176416,
+        0.0006364984000343196,
+        0.0006572464647336202,
+        0.0004359481086765854,
+        0.0017705333739717636,
+        0.0008489986766660931,
+        0.0013816747818892073,
+        0.0007677516264361897
+      ],
+      "microphone_rms_error_m": 7.264243233026683e-05,
+      "microphone_max_error_m": 9.762018164079875e-05,
+      "matched_event_ids": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "status": "solved",
+      "tdoa_rms_s": 3.077644318245206e-07,
+      "rejection_reasons": [
+        "planar_offset_failure"
+      ],
+      "acceptance_class": "standard",
+      "accepted": true,
+      "elapsed_s": 2.0197889969858807,
+      "process_peak_rss_kib": 205328
+    },
+    {
+      "scenario": "grid-free",
+      "microphones": 9,
+      "events": 20,
+      "span": 2.0,
+      "seed": 10,
+      "stage": "exact",
+      "case_id": "grid-free/9/20/2.0/10/exact",
+      "standard_success": true,
+      "configuration": {
+        "name": "grid",
+        "provenance": "synthetic declared grid topology",
+        "arms": null,
+        "rays": null,
+        "angle_deg": null,
+        "grid_slots": [
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            1,
+            0,
+            1
+          ],
+          [
+            2,
+            0,
+            2
+          ],
+          [
+            3,
+            1,
+            0
+          ],
+          [
+            4,
+            1,
+            1
+          ],
+          [
+            5,
+            1,
+            2
+          ],
+          [
+            6,
+            2,
+            0
+          ],
+          [
+            7,
+            2,
+            1
+          ],
+          [
+            8,
+            2,
+            2
+          ]
+        ],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 20,
+      "matched_events": 20,
+      "unresolved_events": 0,
+      "source_rms_error_m": 3.2324407337952425e-15,
+      "source_errors_m": [
+        6.360328080835533e-15,
+        4.447132718159381e-15,
+        6.77599954797753e-16,
+        3.748544367384395e-15,
+        2.220446049250313e-15,
+        5.609648344355636e-15,
+        5.087681048627601e-16,
+        1.368774871883577e-15,
+        3.2487068343022356e-16,
+        1.6711069443220838e-16,
+        2.0206364052201326e-16,
+        6.796220632915539e-16,
+        1.5671457702085671e-15,
+        1.121270291988505e-15,
+        2.2671395712616936e-15,
+        9.305364597889227e-16,
+        1.1567783389051904e-15,
+        3.720929692591006e-15,
+        5.982083174837203e-15,
+        5.863197006355355e-15
+      ],
+      "microphone_rms_error_m": 2.6020595142312463e-16,
+      "microphone_max_error_m": 5.551115123125783e-16,
+      "matched_event_ids": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "status": "solved",
+      "tdoa_rms_s": 1.0022651346206001e-18,
+      "rejection_reasons": [],
+      "acceptance_class": "standard",
+      "accepted": true,
+      "elapsed_s": 1.7960977680049837,
+      "process_peak_rss_kib": 204140
+    },
+    {
+      "scenario": "grid-free",
+      "microphones": 9,
+      "events": 20,
+      "span": 2.0,
+      "seed": 10,
+      "stage": "float-clean",
+      "case_id": "grid-free/9/20/2.0/10/float-clean",
+      "standard_success": true,
+      "configuration": {
+        "name": "grid",
+        "provenance": "synthetic declared grid topology",
+        "arms": null,
+        "rays": null,
+        "angle_deg": null,
+        "grid_slots": [
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            1,
+            0,
+            1
+          ],
+          [
+            2,
+            0,
+            2
+          ],
+          [
+            3,
+            1,
+            0
+          ],
+          [
+            4,
+            1,
+            1
+          ],
+          [
+            5,
+            1,
+            2
+          ],
+          [
+            6,
+            2,
+            0
+          ],
+          [
+            7,
+            2,
+            1
+          ],
+          [
+            8,
+            2,
+            2
+          ]
+        ],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 20,
+      "matched_events": 20,
+      "unresolved_events": 0,
+      "source_rms_error_m": 0.0016499926749061415,
+      "source_errors_m": [
+        0.001318054410597738,
+        0.0012646560340160446,
+        0.005554204248952102,
+        0.0012339967183813848,
+        0.0012950117648936861,
+        0.0007184587808533073,
+        0.0011153448974885395,
+        0.0017350949900853958,
+        0.0012228706664257566,
+        0.001067889792259024,
+        0.0011730497420109028,
+        0.0004870029116179068,
+        0.000546111264636611,
+        0.0004797294900902349,
+        0.00038615692871989474,
+        0.0007973273364008758,
+        0.0008751214190389894,
+        0.0006368983609188407,
+        0.0023261347329867517,
+        0.0003854212742017701
+      ],
+      "microphone_rms_error_m": 0.00021710012962599683,
+      "microphone_max_error_m": 0.0003032629362178209,
+      "matched_event_ids": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "status": "solved",
+      "tdoa_rms_s": 3.0595489996287004e-07,
+      "rejection_reasons": [],
+      "acceptance_class": "standard",
+      "accepted": true,
+      "elapsed_s": 2.1661347769841086,
+      "process_peak_rss_kib": 207108
+    },
+    {
+      "scenario": "room-rectangular",
+      "microphones": 8,
+      "events": 20,
+      "span": 2.0,
+      "seed": 10,
+      "stage": "exact",
+      "case_id": "room-rectangular/8/20/2.0/10/exact",
+      "standard_success": true,
+      "configuration": {
+        "name": "room",
+        "provenance": "",
+        "arms": null,
+        "rays": null,
+        "angle_deg": null,
+        "grid_slots": [],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 20,
+      "matched_events": 20,
+      "unresolved_events": 0,
+      "source_rms_error_m": 9.957171013914728e-14,
+      "source_errors_m": [
+        9.233131587551293e-14,
+        7.85686565914215e-14,
+        2.8283462689364652e-14,
+        5.798224115000464e-14,
+        7.415226041474904e-14,
+        5.0821057717251114e-14,
+        9.341298037800861e-14,
+        1.0831339469810352e-13,
+        9.255638445863231e-14,
+        9.875694350414177e-14,
+        1.4123574038237994e-13,
+        1.4190945930720288e-13,
+        1.2221655823423217e-13,
+        1.1597213498140799e-13,
+        8.335041411169721e-14,
+        1.6733138376305762e-13,
+        6.349718685491413e-14,
+        5.4979696956123614e-14,
+        1.4240716961705452e-13,
+        4.2637767998435354e-14
+      ],
+      "microphone_rms_error_m": 8.275936349597197e-14,
+      "microphone_max_error_m": 1.1665311492915912e-13,
+      "matched_event_ids": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "status": "solved",
+      "tdoa_rms_s": 6.381632775638873e-17,
+      "rejection_reasons": [
+        "completion_or_metric_failure"
+      ],
+      "outside_microphone_hull_events": 19,
+      "acceptance_class": "standard",
+      "accepted": true,
+      "elapsed_s": 8.003674273990327,
+      "process_peak_rss_kib": 204140
+    },
+    {
+      "scenario": "room-rectangular",
+      "microphones": 8,
+      "events": 20,
+      "span": 2.0,
+      "seed": 10,
+      "stage": "float-clean",
+      "case_id": "room-rectangular/8/20/2.0/10/float-clean",
+      "standard_success": true,
+      "configuration": {
+        "name": "room",
+        "provenance": "",
+        "arms": null,
+        "rays": null,
+        "angle_deg": null,
+        "grid_slots": [],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 20,
+      "matched_events": 20,
+      "unresolved_events": 0,
+      "source_rms_error_m": 0.002003303932867922,
+      "source_errors_m": [
+        0.0008747381815358912,
+        0.0011476388709603872,
+        0.0009477978135082701,
+        0.0010614653148294556,
+        0.001353482289769063,
+        0.0007222727653633891,
+        0.0023493993703962877,
+        0.0016016756129022432,
+        0.0037081672437440354,
+        0.0015189218014782827,
+        0.0031889524719353655,
+        0.0036653521977043466,
+        0.002502370791776282,
+        0.0020441926026417865,
+        0.0015869572375886956,
+        0.0013957431977623417,
+        0.0011040038126022974,
+        0.0021246012131244992,
+        0.001722134243692212,
+        0.0015656176382073306
+      ],
+      "microphone_rms_error_m": 0.0005084043600934689,
+      "microphone_max_error_m": 0.0007398516653695691,
+      "matched_event_ids": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "status": "solved",
+      "tdoa_rms_s": 3.664522718073964e-07,
+      "rejection_reasons": [
+        "completion_or_metric_failure",
+        "completion_or_metric_failure",
+        "completion_or_metric_failure",
+        "completion_or_metric_failure",
+        "completion_or_metric_failure",
+        "completion_or_metric_failure"
+      ],
+      "outside_microphone_hull_events": 19,
+      "acceptance_class": "standard",
+      "accepted": true,
+      "elapsed_s": 7.709842266020132,
+      "process_peak_rss_kib": 207108
+    },
+    {
+      "scenario": "star",
+      "microphones": 8,
+      "events": 20,
+      "span": 2.0,
+      "seed": 10,
+      "stage": "exact",
+      "case_id": "star/8/20/2.0/10/exact",
+      "standard_success": true,
+      "configuration": {
+        "name": "arbitrary-planar",
+        "provenance": "",
+        "arms": null,
+        "rays": null,
+        "angle_deg": null,
+        "grid_slots": [],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 20,
+      "matched_events": 20,
+      "unresolved_events": 0,
+      "source_rms_error_m": 7.020549225445156e-14,
+      "source_errors_m": [
+        1.3824840186891068e-14,
+        2.406867753625476e-14,
+        2.694839307228868e-13,
+        7.438734533255257e-14,
+        7.857006851028142e-14,
+        7.753530853369109e-14,
+        3.117968021118473e-14,
+        3.6569337559982135e-14,
+        2.5293371435112682e-14,
+        5.582132061249035e-15,
+        6.3586927314083694e-15,
+        6.2470126149518196e-15,
+        9.68124662951892e-15,
+        3.7966096963603154e-14,
+        1.6686618819872677e-14,
+        4.0688613598429345e-14,
+        1.8547392129530213e-14,
+        1.4665145016902622e-14,
+        5.597825521321478e-15,
+        1.860973571396618e-14
+      ],
+      "microphone_rms_error_m": 5.7911136760577036e-15,
+      "microphone_max_error_m": 9.822964468924644e-15,
+      "matched_event_ids": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "status": "solved",
+      "tdoa_rms_s": 1.207629420330409e-17,
+      "rejection_reasons": [],
+      "acceptance_class": "standard",
+      "accepted": true,
+      "elapsed_s": 1.7775419350073207,
+      "process_peak_rss_kib": 194712
+    },
+    {
+      "scenario": "star",
+      "microphones": 8,
+      "events": 20,
+      "span": 2.0,
+      "seed": 10,
+      "stage": "float-clean",
+      "case_id": "star/8/20/2.0/10/float-clean",
+      "standard_success": true,
+      "configuration": {
+        "name": "arbitrary-planar",
+        "provenance": "",
+        "arms": null,
+        "rays": null,
+        "angle_deg": null,
+        "grid_slots": [],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 20,
+      "matched_events": 20,
+      "unresolved_events": 0,
+      "source_rms_error_m": 0.003163011797852664,
+      "source_errors_m": [
+        0.004078922481202763,
+        0.0029479598387967916,
+        0.002659351653324998,
+        0.003224421684281438,
+        0.0009955291934313072,
+        0.004725280393027658,
+        0.0017089172945786745,
+        0.002660078137810794,
+        0.0016569487333085876,
+        0.001941881417017474,
+        0.0013401400049978965,
+        0.0017802314288184748,
+        0.0033670785393051174,
+        0.0016105943943403162,
+        0.003684757888632048,
+        0.0038015090454142112,
+        0.004094540651045654,
+        0.003133801109956521,
+        0.004758944008456911,
+        0.004615705471885316
+      ],
+      "microphone_rms_error_m": 0.0005635252936048857,
+      "microphone_max_error_m": 0.0007353739391287457,
+      "matched_event_ids": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "status": "solved",
+      "tdoa_rms_s": 3.1917073270963534e-07,
+      "rejection_reasons": [],
+      "acceptance_class": "standard",
+      "accepted": true,
+      "elapsed_s": 2.1537642769981176,
+      "process_peak_rss_kib": 194712
+    }
+  ],
+  "complete": true,
+  "passed": 8,
+  "failed": 2,
+  "accepted": false
+}

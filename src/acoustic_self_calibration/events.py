@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 import numpy as np
 from scipy.ndimage import uniform_filter1d
@@ -361,6 +362,48 @@ def _select_independent_lags(
     return lags, confidence
 
 
+def _waveform_delay_sigma(audio, center, reference_channel, target_channel, lag, half):
+    """Recorded-window delay error from residual power and waveform slope.
+
+    Unknown amplitude and offset are fitted out. Residual correlation inflates
+    uncertainty for waveform mismatch, including a moving-source time stretch.
+    """
+    indices = np.arange(center - half, center + half + 1)
+    reference = audio[indices, reference_channel]
+    target = np.interp(indices + lag, np.arange(len(audio)), audio[:, target_channel])
+    design = np.column_stack([reference, np.ones(len(reference))])
+    coefficients = np.linalg.lstsq(design, target, rcond=None)[0]
+    error = target - design @ coefficients
+    slope = coefficients[0] * np.gradient(reference)
+    slope -= design @ np.linalg.lstsq(design, slope, rcond=None)[0]
+    information = float(slope @ slope)
+    if information <= 1e-30:
+        return lag, float("inf")
+    variance = float(error @ error) / max(1, len(error) - 2)
+    # Correlated residuals carry less independent timing information.
+    correlation = correlate(error, error, mode="full", method="fft")[len(error) - 1 :]
+    correlation /= max(float(correlation[0]), np.finfo(float).tiny)
+    positive = correlation[1 : min(len(correlation), 33)]
+    stop = np.flatnonzero(positive <= 0)
+    if len(stop):
+        positive = positive[: stop[0]]
+    inflation = 1 + 2 * float(np.sum(positive))
+    sigma = float(np.sqrt(max(variance * inflation, 0.0) / information))
+    # Split-window disagreement captures waveform deformation as a systematic
+    # feature-timing error; it must not shrink as 1/sqrt(template length).
+    local_offsets = []
+    for segment in np.array_split(np.arange(len(reference)), 3):
+        local_design = design[segment]
+        local_slope = slope[segment].copy()
+        local_slope -= local_design @ np.linalg.lstsq(local_design, local_slope, rcond=None)[0]
+        local_information = float(local_slope @ local_slope)
+        if local_information > 1e-6 * information:
+            local_offsets.append(float(local_slope @ error[segment]) / local_information)
+    if len(local_offsets) >= 2:
+        sigma = max(sigma, float(np.std(local_offsets, ddof=1)))
+    return lag, sigma
+
+
 def estimate_event_tdoa_measurements(
     audio: np.ndarray,
     sample_rate: int,
@@ -375,6 +418,7 @@ def estimate_event_tdoa_measurements(
     use_temporal_tracking: bool = True,
     best_sigma_samples: float = 0.35,
     worst_sigma_samples: float = 4.0,
+    timing_uncertainty: Literal["confidence", "waveform"] = "confidence",
 ) -> EventTDOAMeasurements:
     """Estimate cycle-consistent event TDOAs in a mic-0 reference-star basis.
 
@@ -382,6 +426,8 @@ def estimate_event_tdoa_measurements(
     use_temporal_tracking=False chooses the strongest correlation peak independently
     for every event/channel and is used as a diagnostic for frontend prior sensitivity.
     """
+    if timing_uncertainty not in {"confidence", "waveform"}:
+        raise ValueError("timing_uncertainty must be confidence or waveform")
     values = _validate_audio(audio, sample_rate)
     events = np.asarray(detection.event_samples, dtype=int).reshape(-1)
     event_channel = int(detection.event_channel)
@@ -401,6 +447,7 @@ def estimate_event_tdoa_measurements(
     )
     margin = max_lag_samples + half_template_samples + 1
     usable = (events >= margin) & (events < len(values) - margin)
+    event_ids = np.flatnonzero(usable)
     events = events[usable]
     if len(events) < 4:
         raise ValueError("fewer than four events have enough surrounding audio for TDOA estimation")
@@ -461,14 +508,30 @@ def estimate_event_tdoa_measurements(
         arrival_lags[:, channel] = selected_lags
         arrival_confidence[:, channel] = selected_confidence
 
-    event_channel_delays_s = arrival_lags / float(sample_rate)
-    reference_arrivals_s = event_channel_delays_s - event_channel_delays_s[:, [0]]
     arrival_sigma_s = arrival_sigma_from_confidence(
         arrival_confidence,
         sample_rate,
         best_sigma_samples=best_sigma_samples,
         worst_sigma_samples=worst_sigma_samples,
     )
+    if timing_uncertainty == "waveform":
+        for event, center in enumerate(events):
+            for channel in range(microphone_count):
+                if channel == event_channel:
+                    arrival_sigma_s[event, channel] = best_sigma_samples / sample_rate
+                    continue
+                lag, sigma = _waveform_delay_sigma(
+                    values,
+                    int(center),
+                    event_channel,
+                    channel,
+                    arrival_lags[event, channel],
+                    half_template_samples,
+                )
+                arrival_lags[event, channel] = lag
+                arrival_sigma_s[event, channel] = max(best_sigma_samples, sigma) / sample_rate
+    event_channel_delays_s = arrival_lags / float(sample_rate)
+    reference_arrivals_s = event_channel_delays_s - event_channel_delays_s[:, [0]]
     event_times_s = events.astype(float) / float(sample_rate)
 
     return reference_star_from_arrivals(
@@ -477,8 +540,8 @@ def estimate_event_tdoa_measurements(
         receiver_event_times_s=event_times_s,
         reference_microphone=0,
         arrival_confidence=arrival_confidence,
-        arrival_valid=np.ones_like(reference_arrivals_s, dtype=bool),
-        event_ids=np.arange(len(events), dtype=np.int64),
+        arrival_valid=np.isfinite(arrival_sigma_s) & np.isfinite(reference_arrivals_s),
+        event_ids=event_ids,
         event_samples=events,
         sample_rate_hz=sample_rate,
         event_channel=event_channel,

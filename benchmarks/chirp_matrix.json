@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "development_seeds": [10, 11, 12],
+  "evaluation_seeds": [30, 31, 32, 33, 34],
+  "microphone_counts": [8, 12, 16, 24],
+  "grid_microphone_counts": [8, 9, 12, 16, 24],
+  "event_counts": [20, 40],
+  "planar_spans_m": [2.0, 4.0],
+  "standard_scenarios": ["generic", "star", "cross90", "cross60", "cross75", "t90", "t60", "t75", "grid-free", "grid-equal", "room-rectangular", "room-irregular"],
+  "negative_scenarios": ["blind-cross", "thin-grid"],
+  "stress_scenarios": ["near-cross", "room-floor-ceiling", "rapid"],
+  "stages": ["exact", "arrival-noise", "float-clean", "float-40db", "pcm-clean", "pcm-40db"],
+  "speed_of_sound_mps": 343.0,
+  "sample_rate_hz": 48000,
+  "arrival_noise_sigma_s": 0.000002,
+  "chirp": {"start_hz": 18000, "end_hz": 4000, "duration_s": 0.0015, "sweep": "linear", "vary_calls": true},
+  "snr_definition": "Clean per-channel power where amplitude exceeds 1% of channel peak; renderer/evaluator only",
+  "limits": {"microphone_rms_m": 0.05, "source_rms_m": 0.10, "tdoa_rms_s": 0.00006, "complete_coverage": true, "required_status": "solved"},
+  "audio_options": {"max_tau_s": 0.03, "tdoa_template_s": 0.002, "timing_uncertainty": "waveform", "best_sigma_samples": 0.35, "worst_sigma_samples": 4.0, "use_temporal_tracking": true},
+  "pr_subset": {"seeds": [10], "counts": [8, 9], "events": [20], "span_m": [2.0], "scenarios": ["star", "cross90", "grid-free", "room-rectangular"], "stages": ["exact", "float-clean"]}
+}

@@ -55,6 +55,21 @@ def structured_coordinates(microphones, ids, configuration: ArrayConfiguration):
             mapping[2 * index[i] : 2 * index[i] + 2, column] = target[arm]
             initial.append((m[index[i]] - origin) @ directions[arm])
         lower = np.full(len(initial), -np.inf)
+        ray_map = np.eye(len(initial))
+        for start_id, end_id in configuration.rays:
+            if end_id in shared:
+                column = free_ids.index(start_id)
+                ray_map[column, column] = -1.0
+                lower[column] = 0.0
+            else:
+                column = free_ids.index(end_id)
+                if start_id not in shared:
+                    ray_map[column, free_ids.index(start_id)] = 1.0
+                lower[column] = 0.0
+        initial = np.linalg.solve(ray_map, np.asarray(initial))
+        mapping = mapping @ ray_map
+        if np.any(np.asarray(initial)[np.isfinite(lower)] <= 0):
+            raise ValueError("declared directed rays contradict recovered geometry")
     else:
         slots = configuration.grid_slots
         rows, columns = sorted({s[1] for s in slots}), sorted({s[2] for s in slots})

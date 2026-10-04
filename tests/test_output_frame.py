@@ -1,3 +1,5 @@
+from typing import Any
+
 import numpy as np
 import pytest
 
@@ -65,3 +67,29 @@ def test_public_origin_export_and_source_emission_time_basis():
     np.testing.assert_allclose(document["scene"]["source"]["times_s"], result.emission_times_s)
     with pytest.raises(ValueError, match="origin microphone"):
         calibrate_audio(scene.audio, scene.sample_rate_hz, output_origin_microphone_id=19)
+
+
+def test_audio_channel_permutation_preserves_declared_microphone_ids():
+    scene = make_chirp_scene(seed=10)
+    options: dict[str, Any] = dict(
+        model="receiver2d_source3d", source_region="same_side", timing_uncertainty="waveform"
+    )
+    first = calibrate_audio(scene.audio, scene.sample_rate_hz, **options)
+    permutation = np.array([5, 1, 7, 0, 3, 6, 2, 4])
+    second = calibrate_audio(
+        scene.audio[:, permutation],
+        scene.sample_rate_hz,
+        microphone_ids=tuple(int(i) for i in permutation),
+        **options,
+    )
+    assert first.microphone_positions_m is not None and second.microphone_positions_m is not None
+    assert first.source_positions_m is not None and second.source_positions_m is not None
+    assert second.calibration.microphone_ids == tuple(permutation)
+    assert second.coordinate_frame is not None and second.coordinate_frame.origin_microphone_id == 0
+    np.testing.assert_allclose(
+        second.microphone_positions_m[np.argsort(permutation)],
+        first.microphone_positions_m,
+        atol=0.003,
+    )
+    np.testing.assert_allclose(second.source_positions_m, first.source_positions_m, atol=0.005)
+    np.testing.assert_array_equal(second.measurements.event_ids, first.measurements.event_ids)

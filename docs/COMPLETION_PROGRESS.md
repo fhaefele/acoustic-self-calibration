@@ -122,3 +122,50 @@ normal reflection; individual events are never reflected toward truth.
 The acceptance command returns exit code 2 and the archived report sets accepted
 false. Removing construction constraints does not produce a uniquely solved
 scene. Independent physical construction evidence remains unavailable.
+
+## M6 — Recorded-window timing and source completion
+
+The optional `timing_uncertainty="waveform"` path estimates uncertainty from
+recorded waveform residuals and slopes after fitting amplitude/offset. Correlated
+residuals and split-window mismatch inflate uncertainty; no clean waveform or
+true geometry is used. Confidence weighting remains the legacy default.
+
+The chirp matrix exposed a completion defect: the first five channels of an
+8-channel cross can lie on one arm. Completion now retains a well-conditioned
+legacy subset, otherwise selects diverse receivers from recovered geometry alone.
+Held-out timing values do not influence that selection. Directed construction
+rays retain positive unknown lengths throughout structured refinement.
+
+The preregistered PR subset passes all 10 exact/clean-float cases (star, cross90,
+8/9-channel grid, rectangular room), requiring complete coverage, `solved`,
+5/10 cm audio limits and 1 mm exact limits. The before-fix report retains its two
+cross failures. This is a subset result, not full M6 acceptance. The development
+and evaluation matrices remain required. Myotis accuracy/coverage and its weak
+status are preserved by the completion fix.
+
+Checks: 12 timing/frame/failure/configuration regressions passed; 10 focused
+Myotis/configuration/grid/source-side regressions passed after the final subset
+fix. Ruff lint/format and Ty checks pass. Exact commands:
+
+```bash
+OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 uv run python benchmarks/run_chirp_matrix.py \
+  --suite pr --workers 2 --output benchmarks/results/chirp_pr_final.json
+uv run pytest tests/test_myotis_public.py tests/test_output_frame.py \
+  tests/test_waveform_uncertainty.py tests/test_chirp_failure_modes.py \
+  tests/test_planar_array_configurations.py
+uv run pytest tests/test_myotis_public.py tests/test_planar_array_configurations.py \
+  tests/test_planar_grid_calibration.py tests/test_source_region.py
+```
+
+## M7 — Diagnostic output and identity invariance
+
+CLI non-success runs now write JSON even when no geometry is available. They
+return exit code 2 and explicitly omit visualization. Export reports detected,
+measurement, localized and unresolved event counts/IDs; incomplete source
+coverage downgrades a `solved` public result. Microphone IDs can be supplied in
+channel order and survive configuration, measurement pairs and output frames.
+A public-audio permutation regression checks the same physical frame to 3 mm
+for microphones and 5 mm for sources. Event IDs survive edge-window rejection.
+
+The quiet-recording and absent-geometry checks pass. Broader low-SNR, channel
+failure and low-diversity characterization remains required for full M7 acceptance.

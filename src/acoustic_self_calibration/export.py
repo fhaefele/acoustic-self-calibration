@@ -200,6 +200,11 @@ def calibration_result_to_dict(
         },
         "source": source_scene,
     }
+    localized = (
+        np.zeros(len(result.event_times_s), dtype=bool)
+        if result.source_positions_m is None
+        else np.isfinite(result.source_positions_m).all(axis=1)
+    )
     diagnostics = calibration.diagnostics
     selected = _selected_hypothesis_dict(result)
     classes = () if isinstance(calibration, PlanarCalibrationResult) else calibration.classes
@@ -234,6 +239,14 @@ def calibration_result_to_dict(
             "event_samples": _json_array(result.event_samples),
             "event_channel": result.event_channel,
             "detected_event_count": result.detected_event_count,
+            "coverage": {
+                "measurement_event_count": len(result.event_times_s),
+                "localized_event_count": int(np.sum(localized)),
+                "unresolved_event_ids": result.measurements.event_ids[~localized].tolist(),
+                "complete": bool(
+                    np.all(localized) and len(localized) == result.detected_event_count
+                ),
+            },
             "microphone_pairs": [list(pair) for pair in result.microphone_pairs],
             "measurement_basis": result.measurements.measurement_basis,
             "measurement_origin": result.measurements.measurement_origin,
@@ -305,9 +318,7 @@ def write_calibration_outputs(
     settings: dict[str, Any] | None = None,
     ground_truth: GroundTruth | str | Path | None = None,
 ) -> CalibrationOutputPaths:
-    """Write JSON and a scene figure for a solved stratified result."""
-    if result.microphone_positions_m is None or result.source_positions_m is None:
-        raise ValueError("cannot plot calibration outputs without solved geometry")
+    """Write diagnostic JSON always; render a figure when geometry is available."""
     paths = _output_paths(output_prefix)
     if isinstance(ground_truth, (str, Path)):
         resolved_ground_truth = load_ground_truth_json(ground_truth)
@@ -316,7 +327,10 @@ def write_calibration_outputs(
 
     evaluation = (
         None
-        if resolved_ground_truth is None or isinstance(result.calibration, PlanarCalibrationResult)
+        if resolved_ground_truth is None
+        or result.microphone_positions_m is None
+        or result.source_positions_m is None
+        or isinstance(result.calibration, PlanarCalibrationResult)
         else evaluate_against_ground_truth(result, resolved_ground_truth)
     )
     document = calibration_result_to_dict(
@@ -325,10 +339,17 @@ def write_calibration_outputs(
         settings=settings,
         ground_truth=resolved_ground_truth,
     )
+    can_plot = result.microphone_positions_m is not None and result.source_positions_m is not None
+    document["visualization"] = {
+        "written": can_plot,
+        "omission_reason": None if can_plot else "geometry_unavailable",
+    }
     paths.json.write_text(
         json.dumps(document, indent=2, allow_nan=False) + "\n",
         encoding="utf-8",
     )
+    if not can_plot:
+        return paths
     plot_calibration_comparison(
         result,
         paths.figure,
