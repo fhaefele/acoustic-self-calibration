@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import hashlib
+import importlib.metadata
 import itertools
 import json
+import platform
 import resource
 import subprocess
 import tempfile
@@ -16,6 +19,7 @@ from pathlib import Path
 
 import numpy as np
 from scipy.io import wavfile
+from scipy.optimize import linear_sum_assignment
 from scipy.spatial import ConvexHull
 
 from acoustic_self_calibration.array_configuration import ArrayConfiguration
@@ -263,6 +267,43 @@ def run_case(case):
                 result = calibrate_audio(scene.audio, scene.sample_rate_hz, **options)
             calibration = result.calibration
             times = result.emission_times_s
+            row["detected_events"] = result.detected_event_count
+            row["measurement_events"] = len(result.measurements.event_ids)
+            # Receiver features are matched using simulator truth only here,
+            # after calibration. This exposes frontend error even if no geometry
+            # was recovered; it never feeds selection or fitting.
+            ranges_s = (
+                np.linalg.norm(
+                    scene.source_positions_at_events_m[:, None]
+                    - scene.microphone_positions_m[None],
+                    axis=2,
+                )
+                / 343.0
+            )
+            arrival_times = scene.event_times_s + ranges_s[:, result.event_channel or 0]
+            distances = abs(result.event_times_s[:, None] - arrival_times[None, :])
+            observed, truth = linear_sum_assignment(distances)
+            keep = distances[observed, truth] < min(
+                0.02, 0.45 * np.min(np.diff(scene.event_times_s))
+            )
+            observed, truth = observed[keep], truth[keep]
+            expected_tdoa = np.column_stack(
+                [
+                    ranges_s[truth, b] - ranges_s[truth, a]
+                    for a, b in result.measurements.microphone_pairs
+                ]
+            )
+            mask = result.measurements.valid[observed]
+            error = (result.measurements.tdoa_s[observed] - expected_tdoa)[mask]
+            row["frontend_matched_events"] = len(observed)
+            row["frontend_tdoa_rms_error_s"] = (
+                float(np.sqrt(np.mean(error**2))) if len(error) else None
+            )
+            row["frontend_tdoa_sigma_median_s"] = (
+                float(np.median(result.measurements.sigma_s[result.measurements.valid]))
+                if np.any(result.measurements.valid)
+                else None
+            )
         row.update(scene_metrics(calibration, scene, times))
         row["status"] = calibration.status
         row["tdoa_rms_s"] = calibration.tdoa_rms_s
@@ -314,6 +355,9 @@ def main():
     parser.add_argument("--events", nargs="+", type=int)
     parser.add_argument("--spans", nargs="+", type=float)
     parser.add_argument("--seeds", nargs="+", type=int)
+    parser.add_argument(
+        "--failed-from", type=Path, help="rerun failures from a preserved JSON or JSON.gz report"
+    )
     parser.add_argument("--output", type=Path, default=ROOT / "benchmarks/results/chirp_pr.json")
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
@@ -332,6 +376,19 @@ def main():
         selected = getattr(args, option)
         if selected:
             expected = [c for c in expected if c[key] in selected]
+    regression_origin = None
+    if args.failed_from:
+        payload = args.failed_from.read_bytes()
+        previous_report = json.loads(
+            gzip.decompress(payload) if args.failed_from.suffix == ".gz" else payload
+        )
+        failed_ids = {
+            r["case_id"] for r in previous_report["results"] if r.get("accepted") is False
+        }
+        expected = [c for c in expected if c["case_id"] in failed_ids]
+        regression_origin = dict(
+            path=str(args.failed_from), sha256=hashlib.sha256(payload).hexdigest()
+        )
     if not expected:
         parser.error("selected filters match no preregistered cases")
     args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -349,21 +406,33 @@ def main():
     source_tree_fingerprint = hashlib.sha256(
         b"".join(str(p.relative_to(ROOT)).encode() + b"\0" + p.read_bytes() for p in source_files)
     ).hexdigest()
+    runner_fingerprint = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+    lock_fingerprint = hashlib.sha256((ROOT / "uv.lock").read_bytes()).hexdigest()
+    runtime_versions = {
+        "python": platform.python_version(),
+        **{name: importlib.metadata.version(name) for name in ("numpy", "scipy", "matplotlib")},
+    }
     if args.resume and args.output.exists():
         previous = json.loads(args.output.read_text())
         if (
             previous.get("source_tree_sha256") != source_tree_fingerprint
             or previous.get("manifest_sha256") != manifest_fingerprint
             or previous.get("expected_case_ids") != [c["case_id"] for c in expected]
+            or previous.get("runner_sha256") != runner_fingerprint
+            or previous.get("uv_lock_sha256") != lock_fingerprint
+            or previous.get("runtime_versions") != runtime_versions
         ):
             raise ValueError("cannot resume results from different solver code")
     report = {
         "schema_version": 1,
+        "regression_of": regression_origin,
         "source_diff_sha256": source_fingerprint,
         "source_tree_sha256": source_tree_fingerprint,
+        "runner_sha256": runner_fingerprint,
+        "runtime_versions": runtime_versions,
         "suite": args.suite,
         "revision": revision,
-        "uv_lock_sha256": hashlib.sha256((ROOT / "uv.lock").read_bytes()).hexdigest(),
+        "uv_lock_sha256": lock_fingerprint,
         "manifest_sha256": manifest_fingerprint,
         "manifest": manifest,
         "expected_case_ids": [c["case_id"] for c in expected],
@@ -376,6 +445,12 @@ def main():
         report["complete"] = ids == {c["case_id"] for c in expected}
         report["passed"] = sum(bool(r["accepted"]) for r in results)
         report["failed"] = sum(not bool(r["accepted"]) for r in results)
+        report["standard_recovery_passed"] = sum(
+            r["acceptance_class"] == "standard" and bool(r["accepted"])
+            for r in results
+            if "acceptance_class" in r
+        )
+        report["stress_characterized"] = sum(r.get("acceptance_class") == "stress" for r in results)
         report["accepted"] = report["complete"] and report["failed"] == 0
         args.output.write_text(json.dumps(report, indent=2, allow_nan=False) + "\n")
 
@@ -388,7 +463,11 @@ def main():
             print(
                 result["case_id"],
                 result["status"],
-                "PASS" if result["accepted"] else "FAIL",
+                "CHARACTERIZED"
+                if result.get("acceptance_class") == "stress" and result["accepted"]
+                else "PASS"
+                if result["accepted"]
+                else "FAIL",
                 flush=True,
             )
     checkpoint()

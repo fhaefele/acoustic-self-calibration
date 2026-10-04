@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -85,6 +86,8 @@ def evaluate_myotis_recording(result, reference_path):
         and result.tdoa_rms_s < 45e-6
         and heldout is not None
         and heldout < 45e-6
+        and int(np.sum(finite)) == result.detected_event_count
+        and int(np.sum(keep)) >= 40
     )
     return dict(
         status="evaluated",
@@ -94,6 +97,7 @@ def evaluate_myotis_recording(result, reference_path):
         localized_events=int(np.sum(finite)),
         reference_overlap_count=int(np.sum(keep)),
         reference_source_count=len(reference.source_times_s),
+        complete_detected_event_coverage=bool(int(np.sum(finite)) == result.detected_event_count),
         unresolved_event_ids=result.measurements.event_ids[~finite].tolist(),
         global_normal_reflection=reflected,
         alignment_fitted_from="microphones_only",
@@ -110,15 +114,26 @@ def public_myotis_report(audio_path, reference_path, configuration, **options):
     frozen = calibration_result_to_dict(result)
     ablation = calibrate_planar_tdoa(result.measurements, receiver_subset_budget=5)
     evaluation = evaluate_myotis_recording(result, reference_path)
+    audio_hash = hashlib.sha256(Path(audio_path).read_bytes()).hexdigest()
+    provenance_path = Path(audio_path).with_name("provenance.json")
+    provenance: dict[str, Any] = (
+        json.loads(provenance_path.read_text())
+        if provenance_path.is_file()
+        else {"acquisition_provenance": "unverified", "reason": "No adjacent provenance record"}
+    )
+    recorded_hashes = {entry.get("sha256") for entry in provenance.get("files", {}).values()}
+    if recorded_hashes and audio_hash not in recorded_hashes:
+        provenance = {
+            "acquisition_provenance": "unverified",
+            "reason": "Adjacent provenance does not match the audio hash",
+        }
     return {
         "schema_version": 1,
         "reference_used_for_solver": False,
-        "audio_sha256": hashlib.sha256(Path(audio_path).read_bytes()).hexdigest(),
+        "audio_sha256": audio_hash,
         "configuration": configuration.to_dict(),
         "options": options,
-        "provenance": json.loads(
-            (Path(__file__).resolve().parents[2] / "data/myotis/provenance.json").read_text()
-        ),
+        "provenance": provenance,
         "recovery": frozen,
         "evaluation": evaluation,
         "ablation": {

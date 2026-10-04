@@ -6,6 +6,11 @@ on:
   pull_request:
     types: [opened, reopened, synchronize, ready_for_review]
   workflow_dispatch:
+    inputs:
+      full_acceptance:
+        description: Run the complete chirp matrix and strict Myotis acceptance
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -68,3 +73,32 @@ jobs:
       - name: Build package
         if: matrix.python-version == '3.12'
         run: uv build
+
+  chirp-acceptance:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    name: Direct chirp acceptance
+    runs-on: ubuntu-latest
+    env:
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.15"
+          enable-cache: true
+      - run: uv sync --locked --all-groups --python 3.12
+      - name: Exact and clean chirp subset
+        run: uv run python benchmarks/run_chirp_matrix.py --suite pr --workers 2 --output results/chirp_pr.json
+      - name: Full held-out evaluation
+        if: github.event_name == 'workflow_dispatch' && inputs.full_acceptance
+        run: uv run python benchmarks/run_chirp_matrix.py --suite evaluation --workers 2 --output results/chirp_evaluation.json
+      - name: Strict public Myotis acceptance
+        if: always() && github.event_name == 'workflow_dispatch' && inputs.full_acceptance
+        run: uv run python examples/validate_myotis_public.py --output results/myotis_public.json
+      - name: Archive outcomes including failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chirp-acceptance
+          path: results/*.json

@@ -57,7 +57,11 @@ class AudioCalibrationResult:
         """Inferred emission-feature times; unresolved events remain NaN."""
         times = np.full(len(self.event_times_s), np.nan)
         if self.source_positions_m is not None and self.microphone_positions_m is not None:
-            channel = self.event_channel or 0
+            channel = (
+                0
+                if self.event_channel is None
+                else self.measurements.microphone_ids.index(self.event_channel)
+            )
             times = (
                 self.event_times_s
                 - np.linalg.norm(
@@ -251,6 +255,7 @@ def calibrate_audio(
             measurements,
             microphone_ids=ids,
             microphone_pairs=tuple((ids[a], ids[b]) for a, b in measurements.microphone_pairs),
+            event_channel=ids[detection.event_channel],
         )
     if model == "general_3d":
         calibration: StratifiedCalibrationResult | PlanarCalibrationResult = calibrate_tdoa(

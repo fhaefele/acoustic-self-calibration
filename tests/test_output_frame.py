@@ -93,3 +93,33 @@ def test_audio_channel_permutation_preserves_declared_microphone_ids():
     )
     np.testing.assert_allclose(second.source_positions_m, first.source_positions_m, atol=0.005)
     np.testing.assert_array_equal(second.measurements.event_ids, first.measurements.event_ids)
+
+
+def test_noncontiguous_microphone_ids_preserve_emission_times_and_frame():
+    from acoustic_self_calibration.array_configuration import ArrayConfiguration
+    from acoustic_self_calibration.chirps import make_chirp_scene
+    from acoustic_self_calibration.export import calibration_result_to_dict
+    from acoustic_self_calibration.pipeline import calibrate_audio
+
+    scene = make_chirp_scene(seed=10)
+    options: dict[str, Any] = dict(
+        array_configuration=ArrayConfiguration("arbitrary-planar"),
+        timing_uncertainty="waveform",
+        max_tau_s=0.03,
+    )
+    dense = calibrate_audio(scene.audio, scene.sample_rate_hz, **options)
+    ids = tuple(range(100, 108))
+    labeled = calibrate_audio(scene.audio, scene.sample_rate_hz, microphone_ids=ids, **options)
+    assert labeled.event_channel == ids[labeled.detection.event_channel]
+    assert labeled.coordinate_frame is not None
+    assert labeled.microphone_positions_m is not None and dense.microphone_positions_m is not None
+    assert labeled.source_positions_m is not None and dense.source_positions_m is not None
+    assert labeled.coordinate_frame.origin_microphone_id == 100
+    np.testing.assert_allclose(
+        labeled.microphone_positions_m, dense.microphone_positions_m, atol=1e-8
+    )
+    np.testing.assert_allclose(labeled.source_positions_m, dense.source_positions_m, atol=1e-8)
+    np.testing.assert_allclose(labeled.emission_times_s, dense.emission_times_s, atol=1e-10)
+    document = calibration_result_to_dict(labeled)
+    assert document["measurements"]["event_microphone_id"] in ids
+    assert document["measurements"]["event_channel_index"] == labeled.detection.event_channel

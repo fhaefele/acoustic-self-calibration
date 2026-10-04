@@ -160,9 +160,11 @@ For `model: "receiver2d_source3d"`, `scene.source` also contains:
 }
 ```
 
-The ordinary `positions_m` field is a positive-normal representative for visualization
-and scene tooling. It is not an independently observed signed 3-D source coordinate.
-The observable values are projection, unsigned height, and the sign-known mask.
+With `source_region="same_side"`, `representation` is `declared_common_side`,
+`region_constraint_enforced` is true and finite off-plane events have known signs
+relative to the chosen occupied side. Without this input, representation is
+`unsigned_plane_normal_representative` and height signs remain unknown.
+This declaration resolves reflection, not the continuous cross metric ambiguity.
 
 ## Reference evaluation
 
@@ -170,8 +172,10 @@ For general 3-D output, alignment is fit from microphones only. The same rigid t
 is applied to source positions. Reference source coordinates are interpolated only over
 the time overlap.
 
-For planar output, calibration-time evaluation reports microphone error and observable
-projected-source/unsigned-height errors. It does not choose source-height signs.
+For planar output, calibration-time evaluation reports microphone error and
+observable projected-source/unsigned-height errors. Offline benchmark evaluation
+may use one global plane reflection after microphone alignment; it never reflects
+individual events independently.
 
 ## Reusing output
 
@@ -187,3 +191,32 @@ references until geometry exists.
 
 Planar output contains a conventional representative source scene, but consumers must
 retain the observable semantics described above.
+
+## Frames, construction and event coverage
+
+`calibration.coordinate_frame` records units, origin microphone ID, x-axis and
+plane baseline IDs, and `output = (input - input_origin_m) @ input_basis`. The
+default origin is microphone 0, otherwise the smallest ID. Final and audit scenes
+receive the same transform; an audit origin can move during refinement.
+`calibration.array_configuration` records supplied topology, directed rays, angle
+in degrees, spacing flags and provenance. Every metric spacing is unknown.
+
+`scene.source.times_s` and `measurements.emission_feature_times_s` use inferred
+emission features. `measurements.receiver_event_times_s` retains receiver arrival
+features. The feature is not an independently observed physical emission onset.
+
+`measurements.coverage` contains measurement/localized counts, unresolved event
+IDs and `complete`. Detected event count is a separate denominator. A public
+result with incomplete source coverage cannot retain `solved`. Invalid/unknown
+coordinates serialize as null, not zero. IDs survive edge-window rejection.
+
+For failures before measurements exist, CLI writes a minimal diagnostic record
+with `scene: null`, status, exception type and reason. `visualization.written`
+is false with a reason. Such a run record is not a scene reference.
+
+`measurements.event_channel`/`event_microphone_id` denote the stable microphone
+ID; `event_channel_index` is the original WAV column. CLI `--event-channel` uses
+a column index. Inferred emission times resolve the ID back to that column.
+`calibration.timing_uncertainty_model` and spatial/planar noise-sensitivity
+diagnostics record the weighting interpretation and applied uncertainty limits.
+Those local diagnostics are not global uniqueness or centimetre guarantees.

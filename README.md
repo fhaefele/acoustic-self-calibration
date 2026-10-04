@@ -26,9 +26,20 @@ fallbacks, or source truth to choose geometry.
 - `general_3d`: 3-D receivers and 3-D source events.
 - `receiver2d_source3d`: planar receivers with 3-D sources.
 
-For the planar model, source output includes in-plane projection, **unsigned** plane-normal
-height, and a per-event sign-known mask. Independent height signs are not identifiable
-from ranges/TDOAs alone.
+For the planar model, source output includes in-plane projection, unsigned height,
+and a per-event sign-known mask. `source_region="same_side"` declares that every
+call stays on one side of the array; output places that occupied side at positive z.
+Without this declaration, height signs remain unknown.
+
+`ArrayConfiguration` selects arbitrary-planar, cross, T, grid or room construction.
+Arbitrary-planar has no shape/angle/spacing input. Cross/T configurations declare
+arm membership and optional directed-ray angles in degrees (including 60, 75 and
+90); every spacing remains unknown. A grid declares row/column topology, with
+optional independently equal row and column spacing of unknown pitch.
+
+Room sources can leave the microphone convex hull. The solver receives no room
+boundaries and cannot infer physical floor/ceiling orientation from TDOAs alone.
+All current fixtures use synchronized direct sound; echoes are outside this scope.
 
 Exact cross/two-line receiver layouts can have a continuous non-rigid ambiguity. The
 solver reports that ambiguity rather than forcing a right angle. A physical constraint
@@ -43,7 +54,8 @@ The current production audio path assumes:
 - discrete broadband/transient events,
 - enough geometric diversity for the chosen dimensional model.
 
-The tested release surface covers 8, 12, 16, and 24 microphones.
+The legacy tests cover 8, 12, 16 and 24 microphones. New grid tests also cover 9 channels.
+See [completion progress](docs/COMPLETION_PROGRESS.md) for current acceptance gaps.
 
 ## CLI
 
@@ -68,7 +80,9 @@ Planar receiver model:
 ```bash
 asc calibrate recording.wav \
   -o results/planar \
-  --model receiver2d-source3d
+  --model receiver2d-source3d \
+  --source-region same-side \
+  --timing-uncertainty waveform
 ```
 
 Planar model with an explicit right-angle arm constraint:
@@ -80,6 +94,19 @@ asc calibrate recording.wav \
   --right-angle 3,0,7 \
   --constraint-provenance "survey drawing / hardware construction"
 ```
+
+Construction files contain IDs/topology, degrees and provenance, never measured
+coordinates or distances. See [the grid example](examples/array_configs/grid_3x3.json)
+and [the conditional Myotis cross](examples/array_configs/myotis_cross.json).
+
+```bash
+asc calibrate recording.wav -o results/grid \
+  --array-config examples/array_configs/grid_3x3.json \
+  --timing-uncertainty waveform --output-origin-microphone 0
+```
+
+If WAV channels are reordered, supply stable IDs in channel order with
+`--microphone-ids 5,1,7,0,3,6,2,4`; construction files and output origins use those IDs.
 
 The implemented solver controls are stratified-only:
 
@@ -175,13 +202,23 @@ pre-refinement geometry for rollback/audit. The evaluation budget and acceptance
 explicit controls. JSON records those budgets together with pre/post coordinates, objective,
 termination, TDOA RMS, and whether the refinement was accepted.
 
-For planar results, the exported 3-D source positions are a conventional positive-normal
-representative for visualization. Machine-readable observable fields also contain
-projected coordinates, unsigned height, and `height_sign_known`.
+All public audio/WAV coordinates are in metres relative to microphone 0 (or the
+smallest ID if 0 is absent). `output_origin_microphone_id` chooses a different
+origin; frame metadata records the baseline convention and transform.
+
+Source times are inferred emission features: receiver feature time minus fitted
+propagation delay. Receiver detection times remain separately in measurements.
+For same-side planar results, `height_sign_known` records the declared constraint;
+without it, positions are an unsigned positive-normal representative.
+
+The default timing uncertainty remains confidence-based for compatibility.
+`timing_uncertainty="waveform"` estimates uncertainty from recorded waveform
+residuals/slope and exposes correlated waveform mismatch. It does not consume a
+known chirp or simulator truth. Weak identification remains a non-success status.
 
 ## JSON and reference evaluation
 
-`asc calibrate` writes:
+`asc calibrate` writes diagnostic JSON for success and non-success. When geometry exists it also writes:
 
 ```text
 RESULT.json
@@ -192,36 +229,29 @@ Reference alignment is fit from microphones only. The same rigid transform is th
 applied to source states, and reference source coordinates are interpolated only over
 overlapping timestamps.
 
-Planar evaluation reports observable projected-source and unsigned-height errors rather
-than silently choosing a source-side sign.
+Absent geometry is recorded explicitly and visualization is omitted. Unresolved event
+IDs and coverage counts remain in JSON; the CLI returns 2 for a non-success result.
+Planar evaluation retains observable projection/height semantics.
 
 See [docs/json_format.md](docs/json_format.md).
 
-## Real Myotis
+## Myotis fixture
 
-The repository does not bundle the real Myotis WAV/reference files.
-
-Blind run:
-
-```bash
-ASC_MYOTIS_AUDIO=/path/to/myotis.wav \
-ASC_MYOTIS_REFERENCE=/path/to/reference.json \
-ASC_MYOTIS_OUTPUT=/tmp/myotis-blind.json \
-uv run python examples/validate_real_myotis.py
-```
-
-Explicitly constrained run:
+The repository includes [the WAV/reference fixture](data/myotis) and its
+[provenance audit](data/myotis/provenance.json). Independent evidence for its
+physical 90-degree construction and acquisition history remains unverified.
+Recovery below is conditional on the explicitly declared angle, not a successful
+arbitrary-planar solution.
 
 ```bash
-uv run python examples/evaluate_constrained_myotis.py \
-  --audio /path/to/myotis.wav \
-  --reference /path/to/reference.json \
-  --right-angle 3,0,7 \
-  --constraint-provenance "survey drawing / hardware construction"
+uv run python examples/validate_myotis_public.py
 ```
 
-Reference geometry/source states are evaluation-only in the blind run. Missing files
-produce `not_run/missing_input_paths`; synthetic data are never substituted.
+Calibration and angle ablation finish before reference loading. The frozen report
+shows microphone RMS 5.13 cm, source RMS 17.18 cm, 41 localized sources from 43
+detections, and two unresolved events. Status remains `weakly_identified`; the
+strengthened acceptance command returns 2. The reference only overlaps 40 localized
+source times and must not be used to choose source signs or tune geometry.
 
 ## Validation
 
@@ -238,7 +268,15 @@ planar exact/noisy recovery, source-height sign ambiguity, continuous cross ambi
 constraint ablation, dimensional-model comparison, diagnostics JSON, and Myotis workflow
 reproducibility.
 
-See [VALIDATION.md](VALIDATION.md).
+New chirp acceptance requires `solved`, complete event coverage, microphone RMS
+<5 cm and source RMS <10 cm. The 10-case PR subset passes; the full development
+and held-out evaluation matrices are separate required checks. The initial
+96-case float/PCM subset had two failures, both corrected by a seed-tolerance fix.
+The broader noisy-arrival matrix still contains failures and weak results;
+Myotis and full acceptance remain incomplete.
+
+See [VALIDATION.md](VALIDATION.md), [the implementation plan](docs/SELF_CALIBRATION_COMPLETION_PLAN.md),
+and [measured progress](docs/COMPLETION_PROGRESS.md).
 
 ## Development
 
@@ -292,3 +330,8 @@ conditions to hide with a fallback estimator.
 ## License
 
 MIT
+
+Recovery plots: [room](benchmarks/figures/room-rectangular_8.svg),
+[cross](benchmarks/figures/cross90_8.svg),
+[grid](benchmarks/figures/grid-free_9.svg), and
+[unknown-angle alternatives](benchmarks/figures/cross_ambiguity.svg).

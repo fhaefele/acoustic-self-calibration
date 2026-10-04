@@ -187,3 +187,71 @@ explicitly modeled ambiguity cases. They are not a prediction of accuracy in a
 reverberant room. Multipath, source occlusion, channel-response differences, incorrect
 direct-path peaks, synchronization error, weak trajectories, and degenerate receiver
 layouts can all reduce identifiability.
+
+## Direct broadband chirp completion checks
+
+The versioned [chirp manifest](benchmarks/chirp_matrix.json) separates exact
+geometry, 2 us noisy arrivals, float audio and PCM16 at clean/40 dB SNR. Chirps
+vary direction, phase, duration, amplitude and bandwidth. Construction constraints
+receive topology/angles only; all true positions, spacings and room boundaries
+remain confined to generation/evaluation. Seeds 10–12 are for development; 30–34
+are reserved for evaluation. Exact gates are 1 mm microphone/source RMS and
+0.01 us timing RMS. Standard audio gates are 5/10 cm, 60 us, complete coverage
+and `solved`. Existing rendered-audio and WAV gates above remain mandatory.
+
+```bash
+OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 uv run python benchmarks/run_chirp_matrix.py \
+  --suite pr --workers 2 --output benchmarks/results/chirp_pr_final.json
+OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 uv run python benchmarks/run_chirp_matrix.py \
+  --suite development --stages exact arrival-noise --workers 3 \
+  --output benchmarks/results/chirp_development_geometry.json
+OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 uv run python benchmarks/run_chirp_matrix.py \
+  --suite development --counts 8 12 --events 20 --stages float-clean float-40db pcm-clean pcm-40db \
+  --workers 3 --output benchmarks/results/chirp_development_audio.json
+OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 uv run python benchmarks/run_chirp_matrix.py \
+  --suite evaluation --workers 3 --output benchmarks/results/chirp_evaluation.json
+uv run python examples/validate_myotis_public.py
+uv run python benchmarks/run_chirp_stress.py --quick
+```
+
+The runner stores expected case IDs, code/dependency/manifest fingerprints, exact
+options, per-case errors/coverage/runtime/memory and failures. Filters permit
+explicitly labeled subsets. `--resume` rejects mismatched code, manifest or case
+sets. Exit 2 means incomplete/failed acceptance, not missing synthetic replacement.
+Stress rows are separate characterization; weak results never count as accuracy
+passes and solved results outside standard limits are explicitly counted.
+
+Current results and remaining gates are in [completion progress](docs/COMPLETION_PROGRESS.md).
+The dedicated Myotis report is a non-passing acceptance result, even though its
+geometry meets the older accuracy baseline. Fixture absence fails its regression
+rather than skipping it. Its supplied 90-degree angle has unverified independent
+construction evidence; removing it retains a continuous ambiguity.
+
+Standalone recovery/error and cross-ambiguity figures can be regenerated with:
+
+```bash
+uv run python benchmarks/plot_chirp_recovery.py
+```
+
+Figures use one rigid microphone alignment, one global planar reflection when
+needed, matched source calls and explicit missing-call markers. Room boundaries
+are generator/evaluator truth, not calibration inputs. Estimated call locations
+are discrete points; the plots do not invent an observed continuous trajectory.
+The ambiguity figure exhibits 12 fixed microphones and all 41 source calls at
+60/90/120 degrees with identical direct ranges.
+
+Complete larger development reports are losslessly archived as `.json.gz`;
+all original rows, expected IDs and failures remain inside. A readable summary
+is in [DEVELOPMENT_RESULTS.md](benchmarks/results/DEVELOPMENT_RESULTS.md).
+
+```bash
+uv run python benchmarks/summarize_reports.py benchmarks/results/chirp_development_*.json.gz
+uv run python benchmarks/run_chirp_matrix.py --suite development --stages arrival-noise \
+  --failed-from benchmarks/results/chirp_development_arrival_noise.json.gz \
+  --output /tmp/noisy_recheck.json
+```
+
+Current source, runner, manifest, dependency lock and runtime versions must match
+before checkpoint resume. The recorded git revision plus source-tree fingerprint
+distinguishes working-tree runs from a frozen source snapshot. Separate correction
+reports preserve older failures rather than retroactively editing their rows.

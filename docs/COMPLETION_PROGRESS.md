@@ -226,3 +226,45 @@ about 3.15 mm, complete coverage and solved status. The planted regression passe
 in 11.45 s. The original 94/96 report remains intact alongside the two-case
 correction report. The post-change non-audio suite passed 300 tests in 592.23 s;
 the final legacy audio acceptance run is recorded separately when complete.
+
+## M8 — Reproduction, evidence and remaining gates
+
+The noisy-arrival development run completed all 732 expected rows. Standard
+recovery passed 525/552; 27 cases missed acceptance. Their final-code recheck
+records 16 weak and 11 failed cases. Earlier `solved` labels with partial source
+coverage are now downgraded, without erasing the original failure evidence.
+Seeds 30–34 remain unused: full evaluation is not claimed. The full audio matrix
+is also not yet demonstrated. Detailed implementation continuation is in
+`docs/REMAINING_ACCEPTANCE_WORK.md`.
+
+Earlier full regression: 317 tests passed in 3080.67 s on the then-current
+working tree. After subsequent fixes, the suite excluding the five main audio
+gate files passed 300 tests in 592.23 s; 14 legacy audio/WAV acceptance tests
+passed in 1521.29 s. Later ID/frame/metric/Myotis regressions passed 8 tests in
+12.73 s; the new planted room regression passed separately. These are recorded
+as staged checks, not falsely described as a single final-revision full run.
+Ruff, Ty, package build and CLI smoke checks pass. New remote Python-matrix
+status must be checked on the actual final commit rather than inherited from
+a previous green run.
+
+Frame/ID auditing corrected event-channel metadata for non-contiguous IDs.
+Measurements export both stable event microphone ID and original WAV column;
+emission features subtract propagation from the matching microphone. Myotis
+reports load adjacent hash-matching provenance, including outside a checkout,
+and require explicit event coverage in their acceptance predicate.
+
+Standalone SVGs show discrete estimated/true calls, source error over time,
+evaluator-only boundaries and globally equivalent cross alternatives. They
+do not connect across unresolved events. CI retains Python 3.11–3.14 checks,
+adds the exact/clean PR subset and offers a manual full evaluation + strict
+Myotis acceptance job whose unsuccessful reports are archived.
+
+**PR readiness remains incomplete:** noisy planar initialization/completion,
+strengthened Myotis acceptance and the full held-out matrix still need work.
+No existing accuracy or conditioning gate was weakened to conceal these results.
+
+All larger development reports are losslessly compressed (`.json.gz`) with a
+readable `benchmarks/results/DEVELOPMENT_RESULTS.md` summary. Every expected ID,
+unsuccessful row and original source fingerprint is preserved. Final PR subset
+reproduction uses a frozen published source commit; matrix resume also checks
+runner/dependency/runtime fingerprints.

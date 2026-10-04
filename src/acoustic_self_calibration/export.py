@@ -239,6 +239,8 @@ def calibration_result_to_dict(
             "emission_time_landmark": "detected_event_feature_minus_fitted_propagation",
             "event_samples": _json_array(result.event_samples),
             "event_channel": result.event_channel,
+            "event_channel_index": result.detection.event_channel,
+            "event_microphone_id": result.event_channel,
             "detected_event_count": result.detected_event_count,
             "coverage": {
                 "measurement_event_count": len(result.event_times_s),
