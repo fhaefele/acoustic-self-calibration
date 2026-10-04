@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "sound_speed_mps": 343.0,
+  "synchronized_channels": true,
+  "source": "one moving emitter of discrete broadband chirps",
+  "acoustics": "direct sound only",
+  "planar_source_region": "one common side",
+  "room_boundary_supplied_to_solver": false,
+  "room_sources_may_leave_microphone_hull": true,
+  "arbitrary_planar_geometry_inputs": [],
+  "structured_geometry_inputs": ["membership", "declared_angle", "optional_equal_spacing_relationships"],
+  "forbidden_solver_inputs": ["reference_coordinates", "emission_times", "emitted_template", "metric_spacing", "aperture", "true_room_boundary"],
+  "standard_limits": {"microphone_rms_m": 0.05, "source_rms_m": 0.10, "tdoa_rms_s": 0.00006},
+  "development_seeds": [10, 11, 12],
+  "evaluation_seeds": [30, 31, 32, 33, 34],
+  "evaluation_seeds_must_not_be_used_for_tuning": true
+}

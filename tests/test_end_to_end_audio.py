@@ -1,131 +1,54 @@
-from pathlib import Path
-
 import numpy as np
-import pytest
-from scipy.io import wavfile
 
-from acoustic_self_calibration import calibrate_audio, calibrate_wav
-from acoustic_self_calibration.geometry import apply_rigid, rigid_align, rms_position_error
-from acoustic_self_calibration.simulation import random_microphone_array, render_moving_source
-
-
-def _broadband_signal(samples: int, rng: np.random.Generator) -> np.ndarray:
-    signal = rng.normal(size=samples)
-    signal = np.concatenate([[0.0], np.diff(signal)])
-    return signal / np.max(np.abs(signal))
+from acoustic_self_calibration import calibrate_audio
+from acoustic_self_calibration.geometry import (
+    apply_rigid,
+    rigid_align,
+    rms_position_error,
+)
+from acoustic_self_calibration.simulation import make_random_3d_pulse_scene
 
 
-def _cardioid_scene(microphone_count: int):
-    rng = np.random.default_rng(30 + microphone_count)
-    sample_rate = 16_000
-    duration = 8.0
-    microphones = random_microphone_array(
-        microphone_count,
-        bounds=((-1.5, 1.5), (-1.5, 1.5), (0.0, 2.2)),
-        rng=rng,
-    )
-    key_times = np.linspace(0.0, duration, 21)
-    phase = np.linspace(0.0, 2.0 * np.pi, len(key_times))
-    source_positions = np.column_stack(
-        [
-            2.0 * np.cos(phase),
-            1.5 * np.sin(phase),
-            1.2 + 0.7 * np.sin(0.8 * phase + 0.2),
-        ]
-    )
-    source_forward = np.array([0.0, 0.0, 1.1])[None, :] - source_positions
-    source_forward /= np.linalg.norm(source_forward, axis=1, keepdims=True)
-    audio = render_moving_source(
-        _broadband_signal(int(sample_rate * duration), rng),
-        sample_rate,
-        microphones,
-        key_times,
-        source_positions,
-        source_forward=source_forward,
-        radiation_pattern="cardioid",
-        noise_std=1e-5,
-        rng=rng,
-    )
-    return sample_rate, microphones, key_times, source_positions, audio
-
-
-@pytest.mark.parametrize("microphone_count", [8, 16, 24])
-def test_general_audio_pipeline_self_calibrates_rendered_cardioid_source(microphone_count):
-    sample_rate, microphones, key_times, source_positions, audio = _cardioid_scene(microphone_count)
-
+def test_public_audio_entry_point_uses_event_driven_stratified_backend() -> None:
+    scene = make_random_3d_pulse_scene(8, event_count=20)
     result = calibrate_audio(
-        audio,
-        sample_rate,
-        frame_size=512,
-        hop_size=8192,
-        max_tau_s=0.025,
-        gcc_interp=16,
-        pair_mode="redundant",
-        reference_count=2,
-        motion_velocity_change_sigma_mps=3.0,
-        likelihood="cauchy",
-        max_nfev=300,
-        compute_laplace_uncertainty=False,
+        scene.audio,
+        scene.sample_rate_hz,
+        event_min_gap_s=0.05,
+        max_tau_s=0.02,
+        tdoa_template_s=0.002,
+        receiver_subset_budget=2,
+        event_subset_budget=2,
+        root_start_count=24,
+        metric_start_count=12,
     )
 
-    true_source = np.column_stack(
-        [
-            np.interp(result.frame_times_s, key_times, source_positions[:, dimension])
-            for dimension in range(3)
-        ]
-    )
+    assert result.status == "solved"
+    assert result.model == "general_3d"
+    assert result.detected_event_count == 20
+    assert result.microphone_positions_m is not None
+    assert result.source_positions_m is not None
     aligned_microphones, rotation, translation = rigid_align(
-        result.calibration.microphone_positions,
-        microphones,
+        result.microphone_positions_m,
+        scene.microphone_positions_m,
     )
-    aligned_source = apply_rigid(result.calibration.source_positions, rotation, translation)
-
-    assert result.calibration.success
-    assert result.tdoa_sigma_s.shape == result.tdoa_s.shape
-    assert np.all(result.tdoa_sigma_s > 0.0)
-    assert rms_position_error(aligned_microphones, microphones) < 0.08
-    assert rms_position_error(aligned_source, true_source) < 0.08
-    assert result.calibration.rms_tdoa_residual_s < 30e-6
-
-
-def test_pcm16_wav_pipeline_returns_joint_position_uncertainty(tmp_path: Path) -> None:
-    sample_rate, microphones, key_times, source_positions, audio = _cardioid_scene(8)
-    path = tmp_path / "moving_source.wav"
-    scaled = audio / max(float(np.max(np.abs(audio))), 1e-12)
-    wavfile.write(path, sample_rate, np.round(0.95 * scaled * 32767.0).astype(np.int16))
-
-    result = calibrate_wav(
-        path,
-        frame_size=512,
-        hop_size=8192,
-        max_tau_s=0.025,
-        gcc_interp=16,
-        pair_mode="redundant",
-        reference_count=2,
-        motion_velocity_change_sigma_mps=3.0,
-        likelihood="cauchy",
-        max_nfev=300,
-        compute_laplace_uncertainty=True,
+    aligned_sources = apply_rigid(
+        result.source_positions_m,
+        rotation,
+        translation,
     )
-
-    true_source = np.column_stack(
-        [
-            np.interp(result.frame_times_s, key_times, source_positions[:, dimension])
-            for dimension in range(3)
-        ]
-    )
-    aligned_microphones, rotation, translation = rigid_align(
-        result.calibration.microphone_positions,
-        microphones,
-    )
-    aligned_source = apply_rigid(result.calibration.source_positions, rotation, translation)
-
-    assert result.calibration.success
-    assert rms_position_error(aligned_microphones, microphones) < 0.10
-    assert rms_position_error(aligned_source, true_source) < 0.10
-    assert result.calibration.microphone_position_std_m is not None
-    assert result.calibration.source_position_std_m is not None
     assert (
-        result.calibration.source_position_std_m.shape == result.calibration.source_positions.shape
+        rms_position_error(
+            aligned_microphones,
+            scene.microphone_positions_m,
+        )
+        < 0.15
     )
-    assert np.isfinite(result.calibration.source_position_std_m).all()
+    assert (
+        rms_position_error(
+            aligned_sources,
+            scene.source_positions_at_events_m,
+        )
+        < 0.18
+    )
+    assert np.all(result.tdoa_sigma_s > 0.0)

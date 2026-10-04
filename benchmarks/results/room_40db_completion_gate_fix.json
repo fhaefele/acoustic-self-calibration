@@ -1,0 +1,309 @@
+{
+  "schema_version": 1,
+  "source_diff_sha256": "6cf33f203207d14cb0c8e52c9f75c2c00383043c289a59427adb8db7006d6c62",
+  "source_tree_sha256": "542c8f4511a7de9566b023b3b36dffcc0c016317ba83f426b094473a8c5f9cc7",
+  "suite": "development",
+  "revision": "e6e5e95ddffb53fc3fcd90aba4ba130b04d5fc5e",
+  "uv_lock_sha256": "cb5a4f0667dfde4a8723a048c6fc165d1bc80e78b449a67cc7165c19864efceb",
+  "manifest_sha256": "f20fa3f6372dfe1263519b02dae9bf959c92906c572bc24993f262d15ca52e5e",
+  "manifest": {
+    "schema_version": 1,
+    "development_seeds": [
+      10,
+      11,
+      12
+    ],
+    "evaluation_seeds": [
+      30,
+      31,
+      32,
+      33,
+      34
+    ],
+    "microphone_counts": [
+      8,
+      12,
+      16,
+      24
+    ],
+    "grid_microphone_counts": [
+      8,
+      9,
+      12,
+      16,
+      24
+    ],
+    "event_counts": [
+      20,
+      40
+    ],
+    "planar_spans_m": [
+      2.0,
+      4.0
+    ],
+    "standard_scenarios": [
+      "generic",
+      "star",
+      "cross90",
+      "cross60",
+      "cross75",
+      "t90",
+      "t60",
+      "t75",
+      "grid-free",
+      "grid-equal",
+      "room-rectangular",
+      "room-irregular"
+    ],
+    "negative_scenarios": [
+      "blind-cross",
+      "thin-grid"
+    ],
+    "stress_scenarios": [
+      "near-cross",
+      "room-floor-ceiling",
+      "rapid"
+    ],
+    "stages": [
+      "exact",
+      "arrival-noise",
+      "float-clean",
+      "float-40db",
+      "pcm-clean",
+      "pcm-40db"
+    ],
+    "speed_of_sound_mps": 343.0,
+    "sample_rate_hz": 48000,
+    "arrival_noise_sigma_s": 2e-06,
+    "chirp": {
+      "start_hz": 18000,
+      "end_hz": 4000,
+      "duration_s": 0.0015,
+      "sweep": "linear",
+      "vary_calls": true
+    },
+    "snr_definition": "Clean per-channel power where amplitude exceeds 1% of channel peak; renderer/evaluator only",
+    "limits": {
+      "microphone_rms_m": 0.05,
+      "source_rms_m": 0.1,
+      "tdoa_rms_s": 6e-05,
+      "complete_coverage": true,
+      "required_status": "solved"
+    },
+    "audio_options": {
+      "max_tau_s": 0.03,
+      "tdoa_template_s": 0.002,
+      "timing_uncertainty": "waveform",
+      "best_sigma_samples": 0.35,
+      "worst_sigma_samples": 4.0,
+      "use_temporal_tracking": true
+    },
+    "pr_subset": {
+      "seeds": [
+        10
+      ],
+      "counts": [
+        8,
+        9
+      ],
+      "events": [
+        20
+      ],
+      "span_m": [
+        2.0
+      ],
+      "scenarios": [
+        "star",
+        "cross90",
+        "grid-free",
+        "room-rectangular"
+      ],
+      "stages": [
+        "exact",
+        "float-clean"
+      ]
+    }
+  },
+  "expected_case_ids": [
+    "room-rectangular/12/20/2.0/12/float-40db",
+    "room-rectangular/12/20/2.0/12/pcm-40db"
+  ],
+  "results": [
+    {
+      "scenario": "room-rectangular",
+      "microphones": 12,
+      "events": 20,
+      "span": 2.0,
+      "seed": 12,
+      "stage": "float-40db",
+      "case_id": "room-rectangular/12/20/2.0/12/float-40db",
+      "standard_success": true,
+      "configuration": {
+        "name": "room",
+        "provenance": "",
+        "arms": null,
+        "rays": null,
+        "angle_deg": null,
+        "grid_slots": [],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 20,
+      "matched_events": 20,
+      "unresolved_events": 0,
+      "source_rms_error_m": 0.0031460299743511317,
+      "source_errors_m": [
+        0.0006707888016858512,
+        0.0025560299295271575,
+        0.0017592953727532433,
+        0.002750563508639302,
+        0.0019916171528076023,
+        0.0025665453149219344,
+        0.0024162974510702454,
+        0.0015175697113090124,
+        0.0031174199658860918,
+        0.0019943330983062738,
+        0.001891939997696055,
+        0.0009856211209161656,
+        0.0018488447502669613,
+        0.006498909936170658,
+        0.0034992190673771035,
+        0.003222603105126902,
+        0.004351084499625946,
+        0.004036796905964223,
+        0.0028040574517817153,
+        0.005655987713286218
+      ],
+      "microphone_rms_error_m": 0.0027234272644404856,
+      "microphone_max_error_m": 0.0039077466726845965,
+      "matched_event_ids": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "status": "solved",
+      "tdoa_rms_s": 8.461769131471038e-06,
+      "rejection_reasons": [
+        "completion_or_metric_failure",
+        "completion_or_metric_failure",
+        "completion_or_metric_failure",
+        "completion_or_metric_failure"
+      ],
+      "outside_microphone_hull_events": 7,
+      "acceptance_class": "standard",
+      "accepted": true,
+      "elapsed_s": 12.296762390993536,
+      "process_peak_rss_kib": 212080
+    },
+    {
+      "scenario": "room-rectangular",
+      "microphones": 12,
+      "events": 20,
+      "span": 2.0,
+      "seed": 12,
+      "stage": "pcm-40db",
+      "case_id": "room-rectangular/12/20/2.0/12/pcm-40db",
+      "standard_success": true,
+      "configuration": {
+        "name": "room",
+        "provenance": "",
+        "arms": null,
+        "rays": null,
+        "angle_deg": null,
+        "grid_slots": [],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 20,
+      "matched_events": 20,
+      "unresolved_events": 0,
+      "source_rms_error_m": 0.0031457516515117977,
+      "source_errors_m": [
+        0.0006714242152979675,
+        0.002556035132618752,
+        0.0017629257617612563,
+        0.0027501068406872746,
+        0.0019928019761064255,
+        0.002566939907196313,
+        0.0024148338430613698,
+        0.0015123143461864533,
+        0.0031163050901277483,
+        0.0019936769459993394,
+        0.0018928903845930292,
+        0.000986624261497042,
+        0.001846253969037954,
+        0.006498972707467441,
+        0.003496782075127299,
+        0.0032214929622391146,
+        0.0043497356468449625,
+        0.004035616381424836,
+        0.002806511930268248,
+        0.005657270840602153
+      ],
+      "microphone_rms_error_m": 0.0027269200450465033,
+      "microphone_max_error_m": 0.003911962121731935,
+      "matched_event_ids": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "status": "solved",
+      "tdoa_rms_s": 8.459762644572182e-06,
+      "rejection_reasons": [
+        "completion_or_metric_failure",
+        "completion_or_metric_failure",
+        "completion_or_metric_failure",
+        "completion_or_metric_failure"
+      ],
+      "outside_microphone_hull_events": 7,
+      "acceptance_class": "standard",
+      "accepted": true,
+      "elapsed_s": 11.687691349012312,
+      "process_peak_rss_kib": 229080
+    }
+  ],
+  "complete": true,
+  "passed": 2,
+  "failed": 0,
+  "accepted": true
+}

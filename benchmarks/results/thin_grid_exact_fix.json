@@ -1,0 +1,1196 @@
+{
+  "schema_version": 1,
+  "source_diff_sha256": "66f2b5e6394b349721f0346df3cc7687a6bd770f0810031a5e615a78f6605831",
+  "source_tree_sha256": "62b2e6ae31928b10b83bc17bea5432b1d9013cc273805642dd4060cfdad02250",
+  "suite": "development",
+  "revision": "e14ffa4fff82f1fb7e486056c012bdf316191338",
+  "uv_lock_sha256": "cb5a4f0667dfde4a8723a048c6fc165d1bc80e78b449a67cc7165c19864efceb",
+  "manifest_sha256": "f20fa3f6372dfe1263519b02dae9bf959c92906c572bc24993f262d15ca52e5e",
+  "manifest": {
+    "schema_version": 1,
+    "development_seeds": [
+      10,
+      11,
+      12
+    ],
+    "evaluation_seeds": [
+      30,
+      31,
+      32,
+      33,
+      34
+    ],
+    "microphone_counts": [
+      8,
+      12,
+      16,
+      24
+    ],
+    "grid_microphone_counts": [
+      8,
+      9,
+      12,
+      16,
+      24
+    ],
+    "event_counts": [
+      20,
+      40
+    ],
+    "planar_spans_m": [
+      2.0,
+      4.0
+    ],
+    "standard_scenarios": [
+      "generic",
+      "star",
+      "cross90",
+      "cross60",
+      "cross75",
+      "t90",
+      "t60",
+      "t75",
+      "grid-free",
+      "grid-equal",
+      "room-rectangular",
+      "room-irregular"
+    ],
+    "negative_scenarios": [
+      "blind-cross",
+      "thin-grid"
+    ],
+    "stress_scenarios": [
+      "near-cross",
+      "room-floor-ceiling",
+      "rapid"
+    ],
+    "stages": [
+      "exact",
+      "arrival-noise",
+      "float-clean",
+      "float-40db",
+      "pcm-clean",
+      "pcm-40db"
+    ],
+    "speed_of_sound_mps": 343.0,
+    "sample_rate_hz": 48000,
+    "arrival_noise_sigma_s": 2e-06,
+    "chirp": {
+      "start_hz": 18000,
+      "end_hz": 4000,
+      "duration_s": 0.0015,
+      "sweep": "linear",
+      "vary_calls": true
+    },
+    "snr_definition": "Clean per-channel power where amplitude exceeds 1% of channel peak; renderer/evaluator only",
+    "limits": {
+      "microphone_rms_m": 0.05,
+      "source_rms_m": 0.1,
+      "tdoa_rms_s": 6e-05,
+      "complete_coverage": true,
+      "required_status": "solved"
+    },
+    "audio_options": {
+      "max_tau_s": 0.03,
+      "tdoa_template_s": 0.002,
+      "timing_uncertainty": "waveform",
+      "best_sigma_samples": 0.35,
+      "worst_sigma_samples": 4.0,
+      "use_temporal_tracking": true
+    },
+    "pr_subset": {
+      "seeds": [
+        10
+      ],
+      "counts": [
+        8,
+        9
+      ],
+      "events": [
+        20
+      ],
+      "span_m": [
+        2.0
+      ],
+      "scenarios": [
+        "star",
+        "cross90",
+        "grid-free",
+        "room-rectangular"
+      ],
+      "stages": [
+        "exact",
+        "float-clean"
+      ]
+    }
+  },
+  "expected_case_ids": [
+    "thin-grid/8/20/2.0/10/exact",
+    "thin-grid/8/20/2.0/11/exact",
+    "thin-grid/8/20/2.0/12/exact",
+    "thin-grid/8/20/4.0/10/exact",
+    "thin-grid/8/20/4.0/11/exact",
+    "thin-grid/8/20/4.0/12/exact",
+    "thin-grid/8/40/2.0/10/exact",
+    "thin-grid/8/40/2.0/11/exact",
+    "thin-grid/8/40/2.0/12/exact",
+    "thin-grid/8/40/4.0/10/exact",
+    "thin-grid/8/40/4.0/11/exact",
+    "thin-grid/8/40/4.0/12/exact"
+  ],
+  "results": [
+    {
+      "scenario": "thin-grid",
+      "microphones": 8,
+      "events": 20,
+      "span": 2.0,
+      "seed": 10,
+      "stage": "exact",
+      "case_id": "thin-grid/8/20/2.0/10/exact",
+      "standard_success": false,
+      "configuration": {
+        "name": "grid",
+        "provenance": "synthetic declared grid topology",
+        "arms": null,
+        "rays": null,
+        "angle_deg": null,
+        "grid_slots": [
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            1,
+            0,
+            1
+          ],
+          [
+            2,
+            0,
+            2
+          ],
+          [
+            3,
+            0,
+            3
+          ],
+          [
+            4,
+            1,
+            0
+          ],
+          [
+            5,
+            1,
+            1
+          ],
+          [
+            6,
+            1,
+            2
+          ],
+          [
+            7,
+            1,
+            3
+          ]
+        ],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 20,
+      "matched_events": 0,
+      "unresolved_events": 20,
+      "source_rms_error_m": null,
+      "source_errors_m": [],
+      "microphone_rms_error_m": null,
+      "microphone_max_error_m": null,
+      "status": "degenerate",
+      "tdoa_rms_s": null,
+      "rejection_reasons": [
+        "indefinite_planar_metric",
+        "indefinite_planar_metric",
+        "negative_source_height_squared",
+        "negative_source_height_squared",
+        "negative_source_height_squared",
+        "negative_source_height_squared",
+        "two_parallel_lines_metric_family"
+      ],
+      "acceptance_class": "negative",
+      "accepted": true,
+      "elapsed_s": 4.650791230989853,
+      "process_peak_rss_kib": 195828
+    },
+    {
+      "scenario": "thin-grid",
+      "microphones": 8,
+      "events": 20,
+      "span": 2.0,
+      "seed": 11,
+      "stage": "exact",
+      "case_id": "thin-grid/8/20/2.0/11/exact",
+      "standard_success": false,
+      "configuration": {
+        "name": "grid",
+        "provenance": "synthetic declared grid topology",
+        "arms": null,
+        "rays": null,
+        "angle_deg": null,
+        "grid_slots": [
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            1,
+            0,
+            1
+          ],
+          [
+            2,
+            0,
+            2
+          ],
+          [
+            3,
+            0,
+            3
+          ],
+          [
+            4,
+            1,
+            0
+          ],
+          [
+            5,
+            1,
+            1
+          ],
+          [
+            6,
+            1,
+            2
+          ],
+          [
+            7,
+            1,
+            3
+          ]
+        ],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 20,
+      "matched_events": 0,
+      "unresolved_events": 20,
+      "source_rms_error_m": null,
+      "source_errors_m": [],
+      "microphone_rms_error_m": null,
+      "microphone_max_error_m": null,
+      "status": "degenerate",
+      "tdoa_rms_s": 3.258367069956366e-17,
+      "rejection_reasons": [
+        "negative_source_height_squared",
+        "receiver_metric_design_rank_deficient",
+        "receiver_points_lie_on_nontrivial_conic",
+        "receiver_metric_design_rank_deficient",
+        "receiver_points_lie_on_nontrivial_conic",
+        "receiver_metric_design_rank_deficient",
+        "receiver_points_lie_on_nontrivial_conic",
+        "ill_conditioned_planar_metric_design",
+        "two_parallel_lines_metric_family"
+      ],
+      "acceptance_class": "negative",
+      "accepted": true,
+      "elapsed_s": 4.6678139730065595,
+      "process_peak_rss_kib": 199640
+    },
+    {
+      "scenario": "thin-grid",
+      "microphones": 8,
+      "events": 20,
+      "span": 2.0,
+      "seed": 12,
+      "stage": "exact",
+      "case_id": "thin-grid/8/20/2.0/12/exact",
+      "standard_success": false,
+      "configuration": {
+        "name": "grid",
+        "provenance": "synthetic declared grid topology",
+        "arms": null,
+        "rays": null,
+        "angle_deg": null,
+        "grid_slots": [
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            1,
+            0,
+            1
+          ],
+          [
+            2,
+            0,
+            2
+          ],
+          [
+            3,
+            0,
+            3
+          ],
+          [
+            4,
+            1,
+            0
+          ],
+          [
+            5,
+            1,
+            1
+          ],
+          [
+            6,
+            1,
+            2
+          ],
+          [
+            7,
+            1,
+            3
+          ]
+        ],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 20,
+      "matched_events": 0,
+      "unresolved_events": 20,
+      "source_rms_error_m": null,
+      "source_errors_m": [],
+      "microphone_rms_error_m": null,
+      "microphone_max_error_m": null,
+      "status": "degenerate",
+      "tdoa_rms_s": null,
+      "rejection_reasons": [
+        "indefinite_planar_metric",
+        "negative_source_height_squared",
+        "negative_source_height_squared",
+        "negative_source_height_squared",
+        "receiver_metric_design_rank_deficient",
+        "receiver_points_lie_on_nontrivial_conic",
+        "indefinite_planar_metric",
+        "two_parallel_lines_metric_family"
+      ],
+      "acceptance_class": "negative",
+      "accepted": true,
+      "elapsed_s": 4.595074565993855,
+      "process_peak_rss_kib": 202424
+    },
+    {
+      "scenario": "thin-grid",
+      "microphones": 8,
+      "events": 20,
+      "span": 4.0,
+      "seed": 10,
+      "stage": "exact",
+      "case_id": "thin-grid/8/20/4.0/10/exact",
+      "standard_success": false,
+      "configuration": {
+        "name": "grid",
+        "provenance": "synthetic declared grid topology",
+        "arms": null,
+        "rays": null,
+        "angle_deg": null,
+        "grid_slots": [
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            1,
+            0,
+            1
+          ],
+          [
+            2,
+            0,
+            2
+          ],
+          [
+            3,
+            0,
+            3
+          ],
+          [
+            4,
+            1,
+            0
+          ],
+          [
+            5,
+            1,
+            1
+          ],
+          [
+            6,
+            1,
+            2
+          ],
+          [
+            7,
+            1,
+            3
+          ]
+        ],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 20,
+      "matched_events": 0,
+      "unresolved_events": 20,
+      "source_rms_error_m": null,
+      "source_errors_m": [],
+      "microphone_rms_error_m": null,
+      "microphone_max_error_m": null,
+      "status": "degenerate",
+      "tdoa_rms_s": null,
+      "rejection_reasons": [
+        "indefinite_planar_metric",
+        "indefinite_planar_metric",
+        "negative_source_height_squared",
+        "negative_source_height_squared",
+        "negative_source_height_squared",
+        "negative_source_height_squared",
+        "two_parallel_lines_metric_family"
+      ],
+      "acceptance_class": "negative",
+      "accepted": true,
+      "elapsed_s": 4.492335468996316,
+      "process_peak_rss_kib": 202428
+    },
+    {
+      "scenario": "thin-grid",
+      "microphones": 8,
+      "events": 20,
+      "span": 4.0,
+      "seed": 11,
+      "stage": "exact",
+      "case_id": "thin-grid/8/20/4.0/11/exact",
+      "standard_success": false,
+      "configuration": {
+        "name": "grid",
+        "provenance": "synthetic declared grid topology",
+        "arms": null,
+        "rays": null,
+        "angle_deg": null,
+        "grid_slots": [
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            1,
+            0,
+            1
+          ],
+          [
+            2,
+            0,
+            2
+          ],
+          [
+            3,
+            0,
+            3
+          ],
+          [
+            4,
+            1,
+            0
+          ],
+          [
+            5,
+            1,
+            1
+          ],
+          [
+            6,
+            1,
+            2
+          ],
+          [
+            7,
+            1,
+            3
+          ]
+        ],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 20,
+      "matched_events": 0,
+      "unresolved_events": 20,
+      "source_rms_error_m": null,
+      "source_errors_m": [],
+      "microphone_rms_error_m": null,
+      "microphone_max_error_m": null,
+      "status": "degenerate",
+      "tdoa_rms_s": 1.3670497596535998e-16,
+      "rejection_reasons": [
+        "receiver_metric_design_rank_deficient",
+        "receiver_points_lie_on_nontrivial_conic",
+        "receiver_metric_design_rank_deficient",
+        "receiver_points_lie_on_nontrivial_conic",
+        "receiver_metric_design_rank_deficient",
+        "receiver_points_lie_on_nontrivial_conic",
+        "receiver_metric_design_rank_deficient",
+        "receiver_points_lie_on_nontrivial_conic",
+        "receiver_metric_design_rank_deficient",
+        "receiver_points_lie_on_nontrivial_conic",
+        "ill_conditioned_planar_metric_design",
+        "two_parallel_lines_metric_family"
+      ],
+      "acceptance_class": "negative",
+      "accepted": true,
+      "elapsed_s": 4.497549596999306,
+      "process_peak_rss_kib": 202428
+    },
+    {
+      "scenario": "thin-grid",
+      "microphones": 8,
+      "events": 20,
+      "span": 4.0,
+      "seed": 12,
+      "stage": "exact",
+      "case_id": "thin-grid/8/20/4.0/12/exact",
+      "standard_success": false,
+      "configuration": {
+        "name": "grid",
+        "provenance": "synthetic declared grid topology",
+        "arms": null,
+        "rays": null,
+        "angle_deg": null,
+        "grid_slots": [
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            1,
+            0,
+            1
+          ],
+          [
+            2,
+            0,
+            2
+          ],
+          [
+            3,
+            0,
+            3
+          ],
+          [
+            4,
+            1,
+            0
+          ],
+          [
+            5,
+            1,
+            1
+          ],
+          [
+            6,
+            1,
+            2
+          ],
+          [
+            7,
+            1,
+            3
+          ]
+        ],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 20,
+      "matched_events": 0,
+      "unresolved_events": 20,
+      "source_rms_error_m": null,
+      "source_errors_m": [],
+      "microphone_rms_error_m": null,
+      "microphone_max_error_m": null,
+      "status": "degenerate",
+      "tdoa_rms_s": null,
+      "rejection_reasons": [
+        "indefinite_planar_metric",
+        "indefinite_planar_metric",
+        "indefinite_planar_metric",
+        "negative_source_height_squared",
+        "receiver_metric_design_rank_deficient",
+        "receiver_points_lie_on_nontrivial_conic",
+        "indefinite_planar_metric",
+        "two_parallel_lines_metric_family"
+      ],
+      "acceptance_class": "negative",
+      "accepted": true,
+      "elapsed_s": 4.560652165993815,
+      "process_peak_rss_kib": 202428
+    },
+    {
+      "scenario": "thin-grid",
+      "microphones": 8,
+      "events": 40,
+      "span": 2.0,
+      "seed": 10,
+      "stage": "exact",
+      "case_id": "thin-grid/8/40/2.0/10/exact",
+      "standard_success": false,
+      "configuration": {
+        "name": "grid",
+        "provenance": "synthetic declared grid topology",
+        "arms": null,
+        "rays": null,
+        "angle_deg": null,
+        "grid_slots": [
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            1,
+            0,
+            1
+          ],
+          [
+            2,
+            0,
+            2
+          ],
+          [
+            3,
+            0,
+            3
+          ],
+          [
+            4,
+            1,
+            0
+          ],
+          [
+            5,
+            1,
+            1
+          ],
+          [
+            6,
+            1,
+            2
+          ],
+          [
+            7,
+            1,
+            3
+          ]
+        ],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 40,
+      "matched_events": 0,
+      "unresolved_events": 40,
+      "source_rms_error_m": null,
+      "source_errors_m": [],
+      "microphone_rms_error_m": null,
+      "microphone_max_error_m": null,
+      "status": "degenerate",
+      "tdoa_rms_s": null,
+      "rejection_reasons": [
+        "indefinite_planar_metric",
+        "indefinite_planar_metric",
+        "negative_source_height_squared",
+        "negative_source_height_squared",
+        "negative_source_height_squared",
+        "negative_source_height_squared",
+        "two_parallel_lines_metric_family"
+      ],
+      "acceptance_class": "negative",
+      "accepted": true,
+      "elapsed_s": 4.61663204501383,
+      "process_peak_rss_kib": 202432
+    },
+    {
+      "scenario": "thin-grid",
+      "microphones": 8,
+      "events": 40,
+      "span": 2.0,
+      "seed": 11,
+      "stage": "exact",
+      "case_id": "thin-grid/8/40/2.0/11/exact",
+      "standard_success": false,
+      "configuration": {
+        "name": "grid",
+        "provenance": "synthetic declared grid topology",
+        "arms": null,
+        "rays": null,
+        "angle_deg": null,
+        "grid_slots": [
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            1,
+            0,
+            1
+          ],
+          [
+            2,
+            0,
+            2
+          ],
+          [
+            3,
+            0,
+            3
+          ],
+          [
+            4,
+            1,
+            0
+          ],
+          [
+            5,
+            1,
+            1
+          ],
+          [
+            6,
+            1,
+            2
+          ],
+          [
+            7,
+            1,
+            3
+          ]
+        ],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 40,
+      "matched_events": 0,
+      "unresolved_events": 40,
+      "source_rms_error_m": null,
+      "source_errors_m": [],
+      "microphone_rms_error_m": null,
+      "microphone_max_error_m": null,
+      "status": "degenerate",
+      "tdoa_rms_s": null,
+      "rejection_reasons": [
+        "receiver_metric_design_rank_deficient",
+        "receiver_points_lie_on_nontrivial_conic",
+        "receiver_metric_design_rank_deficient",
+        "receiver_points_lie_on_nontrivial_conic",
+        "indefinite_planar_metric",
+        "receiver_metric_design_rank_deficient",
+        "receiver_points_lie_on_nontrivial_conic",
+        "negative_source_height_squared",
+        "negative_source_height_squared",
+        "two_parallel_lines_metric_family"
+      ],
+      "acceptance_class": "negative",
+      "accepted": true,
+      "elapsed_s": 4.6656479079974815,
+      "process_peak_rss_kib": 202432
+    },
+    {
+      "scenario": "thin-grid",
+      "microphones": 8,
+      "events": 40,
+      "span": 2.0,
+      "seed": 12,
+      "stage": "exact",
+      "case_id": "thin-grid/8/40/2.0/12/exact",
+      "standard_success": false,
+      "configuration": {
+        "name": "grid",
+        "provenance": "synthetic declared grid topology",
+        "arms": null,
+        "rays": null,
+        "angle_deg": null,
+        "grid_slots": [
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            1,
+            0,
+            1
+          ],
+          [
+            2,
+            0,
+            2
+          ],
+          [
+            3,
+            0,
+            3
+          ],
+          [
+            4,
+            1,
+            0
+          ],
+          [
+            5,
+            1,
+            1
+          ],
+          [
+            6,
+            1,
+            2
+          ],
+          [
+            7,
+            1,
+            3
+          ]
+        ],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 40,
+      "matched_events": 0,
+      "unresolved_events": 40,
+      "source_rms_error_m": null,
+      "source_errors_m": [],
+      "microphone_rms_error_m": null,
+      "microphone_max_error_m": null,
+      "status": "degenerate",
+      "tdoa_rms_s": 2.279746815766208e-17,
+      "rejection_reasons": [
+        "indefinite_planar_metric",
+        "negative_source_height_squared",
+        "negative_source_height_squared",
+        "receiver_metric_design_rank_deficient",
+        "receiver_points_lie_on_nontrivial_conic",
+        "negative_source_height_squared",
+        "ill_conditioned_planar_metric_design",
+        "two_parallel_lines_metric_family"
+      ],
+      "acceptance_class": "negative",
+      "accepted": true,
+      "elapsed_s": 5.098314379982185,
+      "process_peak_rss_kib": 202432
+    },
+    {
+      "scenario": "thin-grid",
+      "microphones": 8,
+      "events": 40,
+      "span": 4.0,
+      "seed": 10,
+      "stage": "exact",
+      "case_id": "thin-grid/8/40/4.0/10/exact",
+      "standard_success": false,
+      "configuration": {
+        "name": "grid",
+        "provenance": "synthetic declared grid topology",
+        "arms": null,
+        "rays": null,
+        "angle_deg": null,
+        "grid_slots": [
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            1,
+            0,
+            1
+          ],
+          [
+            2,
+            0,
+            2
+          ],
+          [
+            3,
+            0,
+            3
+          ],
+          [
+            4,
+            1,
+            0
+          ],
+          [
+            5,
+            1,
+            1
+          ],
+          [
+            6,
+            1,
+            2
+          ],
+          [
+            7,
+            1,
+            3
+          ]
+        ],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 40,
+      "matched_events": 0,
+      "unresolved_events": 40,
+      "source_rms_error_m": null,
+      "source_errors_m": [],
+      "microphone_rms_error_m": null,
+      "microphone_max_error_m": null,
+      "status": "degenerate",
+      "tdoa_rms_s": null,
+      "rejection_reasons": [
+        "indefinite_planar_metric",
+        "indefinite_planar_metric",
+        "negative_source_height_squared",
+        "negative_source_height_squared",
+        "indefinite_planar_metric",
+        "negative_source_height_squared",
+        "two_parallel_lines_metric_family"
+      ],
+      "acceptance_class": "negative",
+      "accepted": true,
+      "elapsed_s": 5.100377811002545,
+      "process_peak_rss_kib": 202728
+    },
+    {
+      "scenario": "thin-grid",
+      "microphones": 8,
+      "events": 40,
+      "span": 4.0,
+      "seed": 11,
+      "stage": "exact",
+      "case_id": "thin-grid/8/40/4.0/11/exact",
+      "standard_success": false,
+      "configuration": {
+        "name": "grid",
+        "provenance": "synthetic declared grid topology",
+        "arms": null,
+        "rays": null,
+        "angle_deg": null,
+        "grid_slots": [
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            1,
+            0,
+            1
+          ],
+          [
+            2,
+            0,
+            2
+          ],
+          [
+            3,
+            0,
+            3
+          ],
+          [
+            4,
+            1,
+            0
+          ],
+          [
+            5,
+            1,
+            1
+          ],
+          [
+            6,
+            1,
+            2
+          ],
+          [
+            7,
+            1,
+            3
+          ]
+        ],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 40,
+      "matched_events": 0,
+      "unresolved_events": 40,
+      "source_rms_error_m": null,
+      "source_errors_m": [],
+      "microphone_rms_error_m": null,
+      "microphone_max_error_m": null,
+      "status": "degenerate",
+      "tdoa_rms_s": 5.808020011127011e-17,
+      "rejection_reasons": [
+        "negative_source_height_squared",
+        "receiver_metric_design_rank_deficient",
+        "receiver_points_lie_on_nontrivial_conic",
+        "receiver_metric_design_rank_deficient",
+        "receiver_points_lie_on_nontrivial_conic",
+        "negative_source_height_squared",
+        "ill_conditioned_planar_metric_design",
+        "two_parallel_lines_metric_family"
+      ],
+      "acceptance_class": "negative",
+      "accepted": true,
+      "elapsed_s": 4.749309946986614,
+      "process_peak_rss_kib": 202728
+    },
+    {
+      "scenario": "thin-grid",
+      "microphones": 8,
+      "events": 40,
+      "span": 4.0,
+      "seed": 12,
+      "stage": "exact",
+      "case_id": "thin-grid/8/40/4.0/12/exact",
+      "standard_success": false,
+      "configuration": {
+        "name": "grid",
+        "provenance": "synthetic declared grid topology",
+        "arms": null,
+        "rays": null,
+        "angle_deg": null,
+        "grid_slots": [
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            1,
+            0,
+            1
+          ],
+          [
+            2,
+            0,
+            2
+          ],
+          [
+            3,
+            0,
+            3
+          ],
+          [
+            4,
+            1,
+            0
+          ],
+          [
+            5,
+            1,
+            1
+          ],
+          [
+            6,
+            1,
+            2
+          ],
+          [
+            7,
+            1,
+            3
+          ]
+        ],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 40,
+      "matched_events": 0,
+      "unresolved_events": 40,
+      "source_rms_error_m": null,
+      "source_errors_m": [],
+      "microphone_rms_error_m": null,
+      "microphone_max_error_m": null,
+      "status": "degenerate",
+      "tdoa_rms_s": null,
+      "rejection_reasons": [
+        "receiver_metric_design_rank_deficient",
+        "receiver_points_lie_on_nontrivial_conic",
+        "receiver_metric_design_rank_deficient",
+        "receiver_points_lie_on_nontrivial_conic",
+        "negative_source_height_squared",
+        "negative_source_height_squared",
+        "receiver_metric_design_rank_deficient",
+        "receiver_points_lie_on_nontrivial_conic",
+        "negative_source_height_squared",
+        "two_parallel_lines_metric_family"
+      ],
+      "acceptance_class": "negative",
+      "accepted": true,
+      "elapsed_s": 4.490442248992622,
+      "process_peak_rss_kib": 202728
+    }
+  ],
+  "complete": true,
+  "passed": 12,
+  "failed": 0,
+  "accepted": true
+}

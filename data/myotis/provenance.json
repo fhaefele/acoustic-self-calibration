@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "acquisition_provenance": "unverified",
+  "reason": "Import labels real recording; frame metadata refers to rendering. Original acquisition record is not included.",
+  "import_commit": "974a2015b3bcbaec6170be9cb808273cf110a54c",
+  "reference_frame_commit": "d543bcb1760d9820aa0ecaf512c449cf550fe165",
+  "channel_count": 12,
+  "sample_rate_hz": 375000,
+  "reference_time_basis": "call_emission_sample_index",
+  "construction_angle": {
+    "degrees": 90,
+    "receiver_triplet": [
+      3,
+      0,
+      11
+    ],
+    "independent_evidence": "unverified; existing fixture declaration only"
+  },
+  "files": {
+    "myotis.wav": {
+      "sha256": "e804f4b9d4d0051821980b0f5752a47764345301652ee6cb8e279d3f4d7e6246",
+      "bytes": 15684800
+    },
+    "myotis_gt.json": {
+      "sha256": "b80bafffa98459fd2529d591d6bc13fff1be17238e590e41fc1b6f8490bcb353",
+      "bytes": 3137
+    }
+  }
+}

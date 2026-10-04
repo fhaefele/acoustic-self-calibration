@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "seeds": [10, 11, 12],
+  "microphone_counts": [8, 12],
+  "event_count": 20,
+  "families": ["star", "room-irregular"],
+  "interventions": ["gain", "quiet-channel", "clipping", "missing-call", "rapid-calls", "low-motion", "near-planar-room", "near-collinear-planar"],
+  "noise_stages": ["float-20db", "float-10db"],
+  "conditions": "Synchronized direct sound only; interventions are planted acquisition/association failures, no echoes",
+  "snr_definition": "Clean per-channel power where amplitude exceeds 1% of peak; masks stay in the renderer",
+  "policy": "Characterization only. Report inaccurate solved scenes separately; weak/failed runs never count as accuracy passes."
+}

@@ -9,3 +9,4 @@ build/
 *.wav
 *.flac
 *.npz
+!data/myotis/myotis.wav

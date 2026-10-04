@@ -1,65 +1,178 @@
-# Algorithm
+# Stratified TDOA algorithm
 
-## State
+## Measurement model
 
-For `M` stationary microphones and `T` source frames, the core unknowns are microphone positions `m_i in R^3` and source states `s_t in R^3`. Optional nuisance variables include per-channel clock offset, linear clock drift, and sound speed.
-
-## Pairwise TDOA factors
-
-For oriented pair `(a, b)`:
+For receiver `r_i`, source event `s_j`, and range
 
 ```text
-h_ab,t = (||s_t-m_b|| - ||s_t-m_a||)/c
-         + (offset_b-offset_a)
-         + (drift_b-drift_a)*(t-t_center)
+d_ij = ||r_i - s_j||
 ```
 
-The measured TDOA has a per-observation standard deviation derived from the GCC-PHAT confidence score. The MAP problem uses standardized residuals. A Cauchy loss is the default to reduce sensitivity to wrong peaks and multipath outliers.
-
-## Redundant measurement graph
-
-A single reference microphone is mathematically sufficient but statistically brittle: one poor reference channel contaminates every TDOA. The default graph keeps the full mic-0 star required by the initializer and adds a second reference set, providing redundancy without the cost of all `M(M-1)/2` pairs.
-
-## Geometric gauge
-
-TDOAs are invariant to a global rigid transform. The optimizer uses a canonical gauge:
-
-- mic 0 at `(0,0,0)`,
-- mic 1 on `+x`,
-- mic 2 in the `+xy` half-plane,
-- mic 3 on the `+z` side.
-
-That removes the six rigid-body degrees of freedom and fixes a handedness convention.
-
-## Low-rank initialization
-
-Reference-channel range differences are converted into a cross-distance model. Unknown source-to-reference ranges are optimized so the doubly centered squared-distance matrix is approximately rank three. A rank-3 factorization then gives microphone/source coordinates up to an affine ambiguity, which is resolved by fitting the cross distances.
-
-This is substantially more stable than starting the nonlinear optimizer from arbitrary random geometry.
-
-## Motion prior
-
-A Gaussian constant-velocity prior penalizes changes in source velocity:
+the mic-0 reference-star TDOA is
 
 ```text
-v_t = (s_t - s_(t-1)) / dt_t
-r_motion = (v_(t+1) - v_t) / sigma_dv
+tau_ij = t_ij - t_0j = (d_ij - d_0j) / c.
 ```
 
-The prior is optional. It regularizes noisy audio while still allowing arbitrary smooth 3-D motion.
+The implementation uses meter-valued relative arrivals
 
-## MAP optimization
+```text
+f_ij = c * tau_ij
+```
 
-The factor graph is solved by sparse nonlinear least squares with an analytic sparse Jacobian. In Gaussian mode this is exactly MAP for Gaussian factors. In robust mode, iteratively reweighted least squares (IRLS) uses Cauchy data weights `1 / (1 + r^2)` on standardized TDOA residuals. Motion and nuisance-parameter priors remain ordinary Gaussian quadratic factors and are never robustified.
+and event offsets
 
-## Uncertainty
+```text
+o_j = -d_0j
+d_ij = f_ij - o_j.
+```
 
-After MAP convergence, a local Laplace approximation uses `J^T J` as the information matrix. Source-state blocks are marginalized with a Schur complement before reporting uncertainty for microphone positions and optional global nuisance variables.
+Offsets may be negative; corrected ranges may not.
 
-## Scale and sound speed
+## Audio frontend
 
-With unknown geometry, TDOA alone does not identify both scene scale and sound speed. Scaling all distances and `c` together leaves time differences unchanged. Therefore sound-speed estimation requires at least one known metric microphone baseline.
+The production frontend detects discrete transients from smoothed channel-energy
+envelopes. Around each event, normalized envelope correlation yields sub-sample lag
+candidates for every channel.
 
-## Practical limitations
+Optional temporal tracking can choose a smooth candidate sequence. It is strictly a
+correspondence heuristic; the geometry solver receives no source-motion smoothness
+factor.
 
-The present renderer and likelihood assume a dominant direct path. Real deployments need stronger handling for reverberation, occlusion, channel-response mismatch, and asynchronous clocks. Posterior covariance is local and should not be mistaken for a guarantee when the problem is multi-modal or poorly initialized.
+Per-channel arrivals are converted into an independent mic-0 reference-star basis.
+Shared-reference covariance is retained in `EventTDOAMeasurements`. Missing or invalid
+measurements stay invalid and are never zero-filled.
+
+## Arrival gauge
+
+Literal zero-reference arrivals make one useful linear formulation rank deficient.
+The solver can apply event-wise gauge shifts
+
+```text
+f'_ij = f_ij + q_j
+o'_j  = o_j + q_j
+```
+
+without changing corrected ranges. Gauge selection is deterministic and scale-aware.
+
+## Linear offset anchors
+
+Exact anchor cases are implemented for:
+
+- 9 receivers / 5 events in rank-3 geometry,
+- 7 receivers / 4 events in rank-2 receiver geometry.
+
+Both solve conditioned linear offset systems after re-gauging.
+
+## Production 7r/6s stage
+
+The production 3-D minimal solver uses 7 receivers and 6 events. A checked-in generated
+rank template supplies primary rank-four equations. Runtime enumeration uses a
+deterministic Halton start schedule and verifies every retained candidate against all 75
+rank-four minors.
+
+Candidates are deduplicated, checked for nonnegative corrected ranges, and assigned
+finite-difference Jacobian-rank diagnostics.
+
+`search_stabilized` is a numerical completeness diagnostic, not a symbolic proof that
+no isolated real root exists outside the bounded search region.
+
+## Expansion
+
+Minimal hypotheses are expanded to more events through column-space membership of the
+receiver-differenced squared-range matrix. Additional microphones are localized from
+recovered source states and absolute ranges.
+
+Generation, completion, and validation measurement masks are tracked separately.
+
+## Affine factorization
+
+Corrected ranges produce the compacted cross-Gram matrix
+
+```text
+Q = -0.5 * C_m.T @ (d**2) @ C_n.
+```
+
+SVD yields rank-3 or rank-2 affine factors and exposes singular values, discarded
+energy, and reconstruction error.
+
+## 3-D metric recovery
+
+For rank-3 factors `Q = X Y.T`, the Euclidean upgrade uses
+
+```text
+r_i = L x_i
+s_j = solve(L.T, b + y_j)
+H = L.T L > 0.
+```
+
+Receiver equations are linear in the symmetric metric entries and `b`; source
+constraints close the remaining metric freedom. Real branches are checked for positive
+definiteness and against original corrected ranges.
+
+The solver never clips metric eigenvalues to manufacture a Euclidean solution.
+
+## Planar receivers / 3-D sources
+
+Rank-2 receiver factors use a five-parameter planar metric system. Each source event
+then exposes:
+
+- a 2-D projection in the receiver plane,
+- unsigned distance from that plane.
+
+Reflecting any individual source event through the receiver plane preserves all ranges.
+Therefore source height sign is not identifiable by default. Results carry unsigned
+height plus a `height_sign_known` mask.
+
+## Continuous planar ambiguity
+
+Some planar arrays lie on a nontrivial conic. The exact two-line Myotis cross has a
+one-dimensional continuous metric nullspace. The solver reports this before candidate
+ranking and does not assign a unique right angle.
+
+An explicit physical constraint, such as a known arm angle, can add an independent
+metric equation. Constraint type, receiver IDs, value, exactness, and provenance are
+explicit inputs. Removing the constraint must restore the unconstrained ambiguity when
+the data remain degenerate.
+
+## Robust validation and consensus
+
+Held-out residuals use heteroscedastic scales and Huber scoring. When shared-reference
+arrival covariance is present, held-out residual blocks use conditional covariance after
+accounting for measurements used to localize the validation source.
+
+Equivalent hypotheses are clustered by receiver-only rigid alignment. Consensus counts
+independent minimal subsets rather than duplicate polynomial roots.
+
+## Dimensional-model comparison
+
+Planar and general-3D models use the same deterministic held-out event split. Evidence
+combines held-out robust scores with structural conditioning. Near-equal evidence returns
+`ambiguous`; training residual is not used to force a winner.
+
+## Coordinate gauge
+
+Geometry is observable only up to rigid transformation/reflection. Canonicalization uses
+conditioning-aware receiver choices rather than fixed first microphones. Gauge fixing is
+a representation choice, not measured handedness.
+
+## Refinement
+
+Optional deterministic measurement-only refinement runs only after a solved stratified
+geometry has been selected. `wls` uses covariance-aware weighted least squares and
+`huber` uses the same whitened TDOA residuals with a fixed robust loss. The geometry is
+optimized in a reduced rigid gauge, planar source heights remain unsigned, and explicit
+planar angle anchors are held fixed. Refinement never participates in branch/model selection
+and never replaces the frozen held-out validation score. The pre-refinement calibration is
+retained for rollback. `refinement_max_nfev` and
+`refinement_improvement_tolerance` make the optimizer budget and acceptance threshold
+explicit. JSON records those controls with pre/post coordinates, objective values,
+termination, TDOA RMS, and whether the candidate refinement was accepted.
+
+## Limitations
+
+The current release assumes synchronized channels and known speed of sound. Reverberation,
+incorrect direct-path peaks, channel-response mismatch, asynchronous clocks, weak source
+trajectories, and degenerate receiver layouts can reduce or remove identifiability.
+Those conditions produce weak/ambiguous/degenerate outcomes rather than a hidden fallback
+estimator.

@@ -1,0 +1,3938 @@
+{
+  "schema_version": 1,
+  "regression_of": {
+    "path": "benchmarks/results/chirp_development_arrival_noise.json",
+    "sha256": "c04b416fb5f830544388c9b64c619b978fd241e03e3d751a1efcf384f3bcb57b"
+  },
+  "source_diff_sha256": "a33784145315c1eb70c06fb63eb8fb258f06ee9b46b59d2fd061450311c9c52f",
+  "source_tree_sha256": "58d1c23d73ecb36b3f8d97ab21fb845bcf32307fda76cddd8d52e4b6436e7cd2",
+  "runner_sha256": "51f08dfb129ffe65e27d0239db282588b75fc63525312423b6b5759ad17f270b",
+  "runtime_versions": {
+    "python": "3.12.14",
+    "numpy": "2.5.3",
+    "scipy": "1.18.1",
+    "matplotlib": "3.11.2"
+  },
+  "suite": "development",
+  "revision": "69810e78265363e22a901b44ee61fd52a45d77fc",
+  "uv_lock_sha256": "cb5a4f0667dfde4a8723a048c6fc165d1bc80e78b449a67cc7165c19864efceb",
+  "manifest_sha256": "f20fa3f6372dfe1263519b02dae9bf959c92906c572bc24993f262d15ca52e5e",
+  "manifest": {
+    "schema_version": 1,
+    "development_seeds": [
+      10,
+      11,
+      12
+    ],
+    "evaluation_seeds": [
+      30,
+      31,
+      32,
+      33,
+      34
+    ],
+    "microphone_counts": [
+      8,
+      12,
+      16,
+      24
+    ],
+    "grid_microphone_counts": [
+      8,
+      9,
+      12,
+      16,
+      24
+    ],
+    "event_counts": [
+      20,
+      40
+    ],
+    "planar_spans_m": [
+      2.0,
+      4.0
+    ],
+    "standard_scenarios": [
+      "generic",
+      "star",
+      "cross90",
+      "cross60",
+      "cross75",
+      "t90",
+      "t60",
+      "t75",
+      "grid-free",
+      "grid-equal",
+      "room-rectangular",
+      "room-irregular"
+    ],
+    "negative_scenarios": [
+      "blind-cross",
+      "thin-grid"
+    ],
+    "stress_scenarios": [
+      "near-cross",
+      "room-floor-ceiling",
+      "rapid"
+    ],
+    "stages": [
+      "exact",
+      "arrival-noise",
+      "float-clean",
+      "float-40db",
+      "pcm-clean",
+      "pcm-40db"
+    ],
+    "speed_of_sound_mps": 343.0,
+    "sample_rate_hz": 48000,
+    "arrival_noise_sigma_s": 2e-06,
+    "chirp": {
+      "start_hz": 18000,
+      "end_hz": 4000,
+      "duration_s": 0.0015,
+      "sweep": "linear",
+      "vary_calls": true
+    },
+    "snr_definition": "Clean per-channel power where amplitude exceeds 1% of channel peak; renderer/evaluator only",
+    "limits": {
+      "microphone_rms_m": 0.05,
+      "source_rms_m": 0.1,
+      "tdoa_rms_s": 6e-05,
+      "complete_coverage": true,
+      "required_status": "solved"
+    },
+    "audio_options": {
+      "max_tau_s": 0.03,
+      "tdoa_template_s": 0.002,
+      "timing_uncertainty": "waveform",
+      "best_sigma_samples": 0.35,
+      "worst_sigma_samples": 4.0,
+      "use_temporal_tracking": true
+    },
+    "pr_subset": {
+      "seeds": [
+        10
+      ],
+      "counts": [
+        8,
+        9
+      ],
+      "events": [
+        20
+      ],
+      "span_m": [
+        2.0
+      ],
+      "scenarios": [
+        "star",
+        "cross90",
+        "grid-free",
+        "room-rectangular"
+      ],
+      "stages": [
+        "exact",
+        "float-clean"
+      ]
+    }
+  },
+  "expected_case_ids": [
+    "generic/24/20/2.0/10/arrival-noise",
+    "star/16/40/2.0/12/arrival-noise",
+    "star/16/40/4.0/12/arrival-noise",
+    "cross90/8/40/2.0/12/arrival-noise",
+    "cross90/8/40/4.0/10/arrival-noise",
+    "cross90/12/20/4.0/10/arrival-noise",
+    "cross60/8/20/2.0/10/arrival-noise",
+    "cross60/8/20/2.0/11/arrival-noise",
+    "cross75/8/20/2.0/10/arrival-noise",
+    "cross75/8/20/2.0/12/arrival-noise",
+    "cross75/8/40/2.0/10/arrival-noise",
+    "t90/8/40/4.0/12/arrival-noise",
+    "t60/8/20/2.0/10/arrival-noise",
+    "t75/8/20/2.0/10/arrival-noise",
+    "t75/8/20/4.0/12/arrival-noise",
+    "grid-free/9/40/4.0/11/arrival-noise",
+    "grid-free/16/20/2.0/10/arrival-noise",
+    "grid-free/16/20/2.0/11/arrival-noise",
+    "grid-free/16/20/2.0/12/arrival-noise",
+    "grid-free/24/40/2.0/12/arrival-noise",
+    "grid-free/24/40/4.0/12/arrival-noise",
+    "grid-equal/9/40/4.0/11/arrival-noise",
+    "grid-equal/16/20/4.0/12/arrival-noise",
+    "grid-equal/24/20/4.0/12/arrival-noise",
+    "grid-equal/24/40/2.0/11/arrival-noise",
+    "grid-equal/24/40/2.0/12/arrival-noise",
+    "grid-equal/24/40/4.0/11/arrival-noise"
+  ],
+  "results": [
+    {
+      "scenario": "cross60",
+      "microphones": 8,
+      "events": 20,
+      "span": 2.0,
+      "seed": 10,
+      "stage": "arrival-noise",
+      "case_id": "cross60/8/20/2.0/10/arrival-noise",
+      "standard_success": false,
+      "configuration": {
+        "name": "cross",
+        "provenance": "synthetic declared two-line construction",
+        "arms": [
+          [
+            0,
+            1,
+            2,
+            3,
+            4
+          ],
+          [
+            2,
+            5,
+            6,
+            7
+          ]
+        ],
+        "rays": [
+          [
+            2,
+            4
+          ],
+          [
+            2,
+            7
+          ]
+        ],
+        "angle_deg": 60,
+        "grid_slots": [],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 20,
+      "matched_events": 0,
+      "unresolved_events": 20,
+      "source_rms_error_m": null,
+      "source_errors_m": [],
+      "source_max_error_m": null,
+      "source_in_plane_rms_error_m": null,
+      "source_normal_rms_error_m": null,
+      "microphone_rms_error_m": null,
+      "microphone_max_error_m": null,
+      "status": "failed",
+      "tdoa_rms_s": null,
+      "rejection_reasons": [
+        "constraint_receivers_not_in_subset",
+        "planar_offset_failure",
+        "planar_offset_failure",
+        "planar_offset_failure",
+        "planar_offset_failure"
+      ],
+      "acceptance_class": "standard",
+      "accepted": false,
+      "elapsed_s": 1.7006876899977215,
+      "process_peak_rss_kib": 261632
+    },
+    {
+      "scenario": "cross60",
+      "microphones": 8,
+      "events": 20,
+      "span": 2.0,
+      "seed": 11,
+      "stage": "arrival-noise",
+      "case_id": "cross60/8/20/2.0/11/arrival-noise",
+      "standard_success": false,
+      "configuration": {
+        "name": "cross",
+        "provenance": "synthetic declared two-line construction",
+        "arms": [
+          [
+            0,
+            1,
+            2,
+            3,
+            4
+          ],
+          [
+            2,
+            5,
+            6,
+            7
+          ]
+        ],
+        "rays": [
+          [
+            2,
+            4
+          ],
+          [
+            2,
+            7
+          ]
+        ],
+        "angle_deg": 60,
+        "grid_slots": [],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 20,
+      "matched_events": 0,
+      "unresolved_events": 20,
+      "source_rms_error_m": null,
+      "source_errors_m": [],
+      "source_max_error_m": null,
+      "source_in_plane_rms_error_m": null,
+      "source_normal_rms_error_m": null,
+      "microphone_rms_error_m": null,
+      "microphone_max_error_m": null,
+      "status": "failed",
+      "tdoa_rms_s": null,
+      "rejection_reasons": [
+        "constraint_receivers_not_in_subset",
+        "insufficient_planar_expansion",
+        "insufficient_planar_expansion",
+        "indefinite_planar_metric",
+        "indefinite_planar_metric"
+      ],
+      "acceptance_class": "standard",
+      "accepted": false,
+      "elapsed_s": 3.020754786004545,
+      "process_peak_rss_kib": 240288
+    },
+    {
+      "scenario": "cross75",
+      "microphones": 8,
+      "events": 20,
+      "span": 2.0,
+      "seed": 10,
+      "stage": "arrival-noise",
+      "case_id": "cross75/8/20/2.0/10/arrival-noise",
+      "standard_success": false,
+      "configuration": {
+        "name": "cross",
+        "provenance": "synthetic declared two-line construction",
+        "arms": [
+          [
+            0,
+            1,
+            2,
+            3,
+            4
+          ],
+          [
+            2,
+            5,
+            6,
+            7
+          ]
+        ],
+        "rays": [
+          [
+            2,
+            4
+          ],
+          [
+            2,
+            7
+          ]
+        ],
+        "angle_deg": 75,
+        "grid_slots": [],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 20,
+      "matched_events": 0,
+      "unresolved_events": 20,
+      "source_rms_error_m": null,
+      "source_errors_m": [],
+      "source_max_error_m": null,
+      "source_in_plane_rms_error_m": null,
+      "source_normal_rms_error_m": null,
+      "microphone_rms_error_m": null,
+      "microphone_max_error_m": null,
+      "status": "failed",
+      "tdoa_rms_s": null,
+      "rejection_reasons": [
+        "constraint_receivers_not_in_subset",
+        "planar_validation_unresolved",
+        "planar_offset_failure",
+        "planar_offset_failure",
+        "planar_offset_failure"
+      ],
+      "acceptance_class": "standard",
+      "accepted": false,
+      "elapsed_s": 1.7454788300092332,
+      "process_peak_rss_kib": 261632
+    },
+    {
+      "scenario": "cross75",
+      "microphones": 8,
+      "events": 20,
+      "span": 2.0,
+      "seed": 12,
+      "stage": "arrival-noise",
+      "case_id": "cross75/8/20/2.0/12/arrival-noise",
+      "standard_success": false,
+      "configuration": {
+        "name": "cross",
+        "provenance": "synthetic declared two-line construction",
+        "arms": [
+          [
+            0,
+            1,
+            2,
+            3,
+            4
+          ],
+          [
+            2,
+            5,
+            6,
+            7
+          ]
+        ],
+        "rays": [
+          [
+            2,
+            4
+          ],
+          [
+            2,
+            7
+          ]
+        ],
+        "angle_deg": 75,
+        "grid_slots": [],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 20,
+      "matched_events": 0,
+      "unresolved_events": 20,
+      "source_rms_error_m": null,
+      "source_errors_m": [],
+      "source_max_error_m": null,
+      "source_in_plane_rms_error_m": null,
+      "source_normal_rms_error_m": null,
+      "microphone_rms_error_m": null,
+      "microphone_max_error_m": null,
+      "status": "failed",
+      "tdoa_rms_s": null,
+      "rejection_reasons": [
+        "constraint_receivers_not_in_subset",
+        "planar_receiver_completion_failure",
+        "planar_offset_failure",
+        "insufficient_planar_expansion",
+        "planar_receiver_completion_failure"
+      ],
+      "acceptance_class": "standard",
+      "accepted": false,
+      "elapsed_s": 1.7960173510073218,
+      "process_peak_rss_kib": 261632
+    },
+    {
+      "scenario": "cross75",
+      "microphones": 8,
+      "events": 40,
+      "span": 2.0,
+      "seed": 10,
+      "stage": "arrival-noise",
+      "case_id": "cross75/8/40/2.0/10/arrival-noise",
+      "standard_success": false,
+      "configuration": {
+        "name": "cross",
+        "provenance": "synthetic declared two-line construction",
+        "arms": [
+          [
+            0,
+            1,
+            2,
+            3,
+            4
+          ],
+          [
+            2,
+            5,
+            6,
+            7
+          ]
+        ],
+        "rays": [
+          [
+            2,
+            4
+          ],
+          [
+            2,
+            7
+          ]
+        ],
+        "angle_deg": 75,
+        "grid_slots": [],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 40,
+      "matched_events": 35,
+      "unresolved_events": 5,
+      "source_rms_error_m": 0.009382199602313741,
+      "source_errors_m": [
+        0.012179500508570038,
+        0.0032237767168950267,
+        0.010064051518333186,
+        0.0035081735052071407,
+        0.02900755199583584,
+        0.012746743805703637,
+        0.02111261310569876,
+        0.009109719576801794,
+        0.0035579225111605777,
+        0.006648108188038371,
+        0.007941981283752585,
+        0.005508580729406128,
+        0.0038860163371085077,
+        0.004437396930244003,
+        0.003477998989939904,
+        0.008156007880474029,
+        0.0017360643035774514,
+        0.0034496751446201315,
+        0.002147431495286114,
+        0.003972006496703456,
+        0.0016866200814411078,
+        0.0029161611385041903,
+        0.0012411061489026973,
+        0.0016354217304813347,
+        0.009615924908345397,
+        0.012129260572805846,
+        0.001902930302373459,
+        0.0016541692312286144,
+        0.01308125889450254,
+        0.009514625277925565,
+        0.0059948070719886525,
+        0.002995810350980526,
+        0.017907101826710497,
+        0.006679865132628882,
+        0.0066021524840466075
+      ],
+      "source_max_error_m": 0.02900755199583584,
+      "source_in_plane_rms_error_m": 0.002694791079819036,
+      "source_normal_rms_error_m": 0.008986866551461855,
+      "microphone_rms_error_m": 0.0007487616043947879,
+      "microphone_max_error_m": 0.0015955745415885537,
+      "matched_event_ids": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        19,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        34,
+        36,
+        37,
+        38,
+        39
+      ],
+      "status": "weakly_identified",
+      "tdoa_rms_s": 1.9904635427612886e-06,
+      "rejection_reasons": [
+        "constraint_receivers_not_in_subset",
+        "planar_offset_failure",
+        "planar_offset_failure",
+        "planar_receiver_completion_failure",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "incomplete_source_coverage"
+      ],
+      "acceptance_class": "standard",
+      "accepted": false,
+      "elapsed_s": 2.193701295997016,
+      "process_peak_rss_kib": 240288
+    },
+    {
+      "scenario": "cross90",
+      "microphones": 12,
+      "events": 20,
+      "span": 4.0,
+      "seed": 10,
+      "stage": "arrival-noise",
+      "case_id": "cross90/12/20/4.0/10/arrival-noise",
+      "standard_success": false,
+      "configuration": {
+        "name": "cross",
+        "provenance": "synthetic declared two-line construction",
+        "arms": [
+          [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          [
+            3,
+            7,
+            8,
+            9,
+            10,
+            11
+          ]
+        ],
+        "rays": [
+          [
+            3,
+            6
+          ],
+          [
+            3,
+            11
+          ]
+        ],
+        "angle_deg": 90,
+        "grid_slots": [],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 20,
+      "matched_events": 0,
+      "unresolved_events": 20,
+      "source_rms_error_m": null,
+      "source_errors_m": [],
+      "source_max_error_m": null,
+      "source_in_plane_rms_error_m": null,
+      "source_normal_rms_error_m": null,
+      "microphone_rms_error_m": null,
+      "microphone_max_error_m": null,
+      "status": "failed",
+      "tdoa_rms_s": null,
+      "rejection_reasons": [
+        "planar_receiver_completion_failure",
+        "planar_offset_failure",
+        "planar_offset_failure",
+        "planar_offset_failure",
+        "planar_receiver_completion_failure",
+        "planar_receiver_completion_failure"
+      ],
+      "acceptance_class": "standard",
+      "accepted": false,
+      "elapsed_s": 2.666860139986966,
+      "process_peak_rss_kib": 240288
+    },
+    {
+      "scenario": "cross90",
+      "microphones": 8,
+      "events": 40,
+      "span": 2.0,
+      "seed": 12,
+      "stage": "arrival-noise",
+      "case_id": "cross90/8/40/2.0/12/arrival-noise",
+      "standard_success": false,
+      "configuration": {
+        "name": "cross",
+        "provenance": "synthetic declared two-line construction",
+        "arms": [
+          [
+            0,
+            1,
+            2,
+            3,
+            4
+          ],
+          [
+            2,
+            5,
+            6,
+            7
+          ]
+        ],
+        "rays": [
+          [
+            2,
+            4
+          ],
+          [
+            2,
+            7
+          ]
+        ],
+        "angle_deg": 90,
+        "grid_slots": [],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 40,
+      "matched_events": 0,
+      "unresolved_events": 40,
+      "source_rms_error_m": null,
+      "source_errors_m": [],
+      "source_max_error_m": null,
+      "source_in_plane_rms_error_m": null,
+      "source_normal_rms_error_m": null,
+      "microphone_rms_error_m": null,
+      "microphone_max_error_m": null,
+      "status": "failed",
+      "tdoa_rms_s": null,
+      "rejection_reasons": [
+        "constraint_receivers_not_in_subset",
+        "planar_receiver_completion_failure",
+        "planar_offset_failure",
+        "planar_receiver_completion_failure",
+        "planar_receiver_completion_failure"
+      ],
+      "acceptance_class": "standard",
+      "accepted": false,
+      "elapsed_s": 1.9197765319840983,
+      "process_peak_rss_kib": 261632
+    },
+    {
+      "scenario": "cross90",
+      "microphones": 8,
+      "events": 40,
+      "span": 4.0,
+      "seed": 10,
+      "stage": "arrival-noise",
+      "case_id": "cross90/8/40/4.0/10/arrival-noise",
+      "standard_success": false,
+      "configuration": {
+        "name": "cross",
+        "provenance": "synthetic declared two-line construction",
+        "arms": [
+          [
+            0,
+            1,
+            2,
+            3,
+            4
+          ],
+          [
+            2,
+            5,
+            6,
+            7
+          ]
+        ],
+        "rays": [
+          [
+            2,
+            4
+          ],
+          [
+            2,
+            7
+          ]
+        ],
+        "angle_deg": 90,
+        "grid_slots": [],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 40,
+      "matched_events": 35,
+      "unresolved_events": 5,
+      "source_rms_error_m": 0.007007223962659681,
+      "source_errors_m": [
+        0.003832936617331958,
+        0.010752461178450235,
+        0.017962001814149375,
+        0.01072940838975303,
+        0.019309366550337822,
+        0.0035556954108789227,
+        0.01109877584405787,
+        0.0010661587959235998,
+        0.012083356115552885,
+        0.0024070054913994505,
+        0.0016384547856833048,
+        0.0028821107359192737,
+        0.004754304303492477,
+        0.0029379855897601476,
+        0.003553254496887551,
+        0.0010691396748301928,
+        0.005096609026484697,
+        0.002149969992809392,
+        0.0012097817765277634,
+        0.0019265137569664118,
+        0.0033091329963277657,
+        0.0026259386371347737,
+        0.0031890275274745403,
+        0.004838546752623128,
+        0.0024411061104413455,
+        0.0038788663196601143,
+        0.0049242274043854355,
+        0.002920742868862057,
+        0.0018464203048966742,
+        0.001864739174011193,
+        0.0004961300968014,
+        0.004562035379637114,
+        0.008623083903759623,
+        0.002029085473863162,
+        0.013618651547322773
+      ],
+      "source_max_error_m": 0.019309366550337822,
+      "source_in_plane_rms_error_m": 0.002188276632330819,
+      "source_normal_rms_error_m": 0.006656773470929211,
+      "microphone_rms_error_m": 0.000587961854084076,
+      "microphone_max_error_m": 0.0009873217959521603,
+      "matched_event_ids": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        19,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39
+      ],
+      "status": "weakly_identified",
+      "tdoa_rms_s": 1.9860709165247914e-06,
+      "rejection_reasons": [
+        "constraint_receivers_not_in_subset",
+        "planar_receiver_completion_failure",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "incomplete_source_coverage"
+      ],
+      "acceptance_class": "standard",
+      "accepted": false,
+      "elapsed_s": 2.124103321984876,
+      "process_peak_rss_kib": 261632
+    },
+    {
+      "scenario": "generic",
+      "microphones": 24,
+      "events": 20,
+      "span": 2.0,
+      "seed": 10,
+      "stage": "arrival-noise",
+      "case_id": "generic/24/20/2.0/10/arrival-noise",
+      "standard_success": false,
+      "configuration": {
+        "name": "arbitrary-planar",
+        "provenance": "",
+        "arms": null,
+        "rays": null,
+        "angle_deg": null,
+        "grid_slots": [],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 20,
+      "matched_events": 0,
+      "unresolved_events": 20,
+      "source_rms_error_m": null,
+      "source_errors_m": [],
+      "source_max_error_m": null,
+      "source_in_plane_rms_error_m": null,
+      "source_normal_rms_error_m": null,
+      "microphone_rms_error_m": null,
+      "microphone_max_error_m": null,
+      "status": "failed",
+      "tdoa_rms_s": null,
+      "rejection_reasons": [
+        "planar_offset_failure",
+        "planar_offset_failure",
+        "planar_receiver_completion_failure",
+        "planar_receiver_completion_failure",
+        "planar_receiver_completion_failure",
+        "planar_receiver_completion_failure"
+      ],
+      "acceptance_class": "standard",
+      "accepted": false,
+      "elapsed_s": 5.584411246003583,
+      "process_peak_rss_kib": 261632
+    },
+    {
+      "scenario": "grid-equal",
+      "microphones": 16,
+      "events": 20,
+      "span": 4.0,
+      "seed": 12,
+      "stage": "arrival-noise",
+      "case_id": "grid-equal/16/20/4.0/12/arrival-noise",
+      "standard_success": false,
+      "configuration": {
+        "name": "grid",
+        "provenance": "synthetic declared grid topology",
+        "arms": null,
+        "rays": null,
+        "angle_deg": null,
+        "grid_slots": [
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            1,
+            0,
+            1
+          ],
+          [
+            2,
+            0,
+            2
+          ],
+          [
+            3,
+            0,
+            3
+          ],
+          [
+            4,
+            1,
+            0
+          ],
+          [
+            5,
+            1,
+            1
+          ],
+          [
+            6,
+            1,
+            2
+          ],
+          [
+            7,
+            1,
+            3
+          ],
+          [
+            8,
+            2,
+            0
+          ],
+          [
+            9,
+            2,
+            1
+          ],
+          [
+            10,
+            2,
+            2
+          ],
+          [
+            11,
+            2,
+            3
+          ],
+          [
+            12,
+            3,
+            0
+          ],
+          [
+            13,
+            3,
+            1
+          ],
+          [
+            14,
+            3,
+            2
+          ],
+          [
+            15,
+            3,
+            3
+          ]
+        ],
+        "equal_row_spacing": true,
+        "equal_column_spacing": true,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 20,
+      "matched_events": 14,
+      "unresolved_events": 6,
+      "source_rms_error_m": 0.0037040843829338707,
+      "source_errors_m": [
+        0.005431986228971384,
+        0.0033523525288211694,
+        0.0034353648507309065,
+        0.008922823522811131,
+        0.0018214525068903599,
+        0.0018108453947355187,
+        0.000806966023078175,
+        0.0010378897793692633,
+        0.004862302141437295,
+        0.002275602673279811,
+        0.0034125218374512667,
+        0.002958631834170913,
+        0.0006408246940257831,
+        0.0014018021580895562
+      ],
+      "source_max_error_m": 0.008922823522811131,
+      "source_in_plane_rms_error_m": 0.001013920960581012,
+      "source_normal_rms_error_m": 0.0035626121598609454,
+      "microphone_rms_error_m": 0.00040223635281138947,
+      "microphone_max_error_m": 0.0005396566967450192,
+      "matched_event_ids": [
+        0,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        14,
+        16,
+        17,
+        19
+      ],
+      "status": "weakly_identified",
+      "tdoa_rms_s": 1.9787446109466856e-06,
+      "rejection_reasons": [
+        "planar_receiver_completion_failure",
+        "planar_receiver_completion_failure",
+        "planar_receiver_completion_failure",
+        "planar_receiver_completion_failure",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "incomplete_source_coverage"
+      ],
+      "acceptance_class": "standard",
+      "accepted": false,
+      "elapsed_s": 2.4404554549837485,
+      "process_peak_rss_kib": 240632
+    },
+    {
+      "scenario": "grid-equal",
+      "microphones": 24,
+      "events": 20,
+      "span": 4.0,
+      "seed": 12,
+      "stage": "arrival-noise",
+      "case_id": "grid-equal/24/20/4.0/12/arrival-noise",
+      "standard_success": false,
+      "configuration": {
+        "name": "grid",
+        "provenance": "synthetic declared grid topology",
+        "arms": null,
+        "rays": null,
+        "angle_deg": null,
+        "grid_slots": [
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            1,
+            0,
+            1
+          ],
+          [
+            2,
+            0,
+            2
+          ],
+          [
+            3,
+            0,
+            3
+          ],
+          [
+            4,
+            0,
+            4
+          ],
+          [
+            5,
+            0,
+            5
+          ],
+          [
+            6,
+            1,
+            0
+          ],
+          [
+            7,
+            1,
+            1
+          ],
+          [
+            8,
+            1,
+            2
+          ],
+          [
+            9,
+            1,
+            3
+          ],
+          [
+            10,
+            1,
+            4
+          ],
+          [
+            11,
+            1,
+            5
+          ],
+          [
+            12,
+            2,
+            0
+          ],
+          [
+            13,
+            2,
+            1
+          ],
+          [
+            14,
+            2,
+            2
+          ],
+          [
+            15,
+            2,
+            3
+          ],
+          [
+            16,
+            2,
+            4
+          ],
+          [
+            17,
+            2,
+            5
+          ],
+          [
+            18,
+            3,
+            0
+          ],
+          [
+            19,
+            3,
+            1
+          ],
+          [
+            20,
+            3,
+            2
+          ],
+          [
+            21,
+            3,
+            3
+          ],
+          [
+            22,
+            3,
+            4
+          ],
+          [
+            23,
+            3,
+            5
+          ]
+        ],
+        "equal_row_spacing": true,
+        "equal_column_spacing": true,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 20,
+      "matched_events": 0,
+      "unresolved_events": 20,
+      "source_rms_error_m": null,
+      "source_errors_m": [],
+      "source_max_error_m": null,
+      "source_in_plane_rms_error_m": null,
+      "source_normal_rms_error_m": null,
+      "microphone_rms_error_m": null,
+      "microphone_max_error_m": null,
+      "status": "failed",
+      "tdoa_rms_s": null,
+      "rejection_reasons": [
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_validation_unresolved",
+        "planar_receiver_completion_failure",
+        "planar_receiver_completion_failure",
+        "planar_receiver_completion_failure",
+        "planar_receiver_completion_failure",
+        "planar_receiver_completion_failure"
+      ],
+      "acceptance_class": "standard",
+      "accepted": false,
+      "elapsed_s": 2.997742762992857,
+      "process_peak_rss_kib": 261632
+    },
+    {
+      "scenario": "grid-equal",
+      "microphones": 24,
+      "events": 40,
+      "span": 2.0,
+      "seed": 11,
+      "stage": "arrival-noise",
+      "case_id": "grid-equal/24/40/2.0/11/arrival-noise",
+      "standard_success": false,
+      "configuration": {
+        "name": "grid",
+        "provenance": "synthetic declared grid topology",
+        "arms": null,
+        "rays": null,
+        "angle_deg": null,
+        "grid_slots": [
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            1,
+            0,
+            1
+          ],
+          [
+            2,
+            0,
+            2
+          ],
+          [
+            3,
+            0,
+            3
+          ],
+          [
+            4,
+            0,
+            4
+          ],
+          [
+            5,
+            0,
+            5
+          ],
+          [
+            6,
+            1,
+            0
+          ],
+          [
+            7,
+            1,
+            1
+          ],
+          [
+            8,
+            1,
+            2
+          ],
+          [
+            9,
+            1,
+            3
+          ],
+          [
+            10,
+            1,
+            4
+          ],
+          [
+            11,
+            1,
+            5
+          ],
+          [
+            12,
+            2,
+            0
+          ],
+          [
+            13,
+            2,
+            1
+          ],
+          [
+            14,
+            2,
+            2
+          ],
+          [
+            15,
+            2,
+            3
+          ],
+          [
+            16,
+            2,
+            4
+          ],
+          [
+            17,
+            2,
+            5
+          ],
+          [
+            18,
+            3,
+            0
+          ],
+          [
+            19,
+            3,
+            1
+          ],
+          [
+            20,
+            3,
+            2
+          ],
+          [
+            21,
+            3,
+            3
+          ],
+          [
+            22,
+            3,
+            4
+          ],
+          [
+            23,
+            3,
+            5
+          ]
+        ],
+        "equal_row_spacing": true,
+        "equal_column_spacing": true,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 40,
+      "matched_events": 39,
+      "unresolved_events": 1,
+      "source_rms_error_m": 0.005445194573042253,
+      "source_errors_m": [
+        0.004604167095471718,
+        0.00487659605721996,
+        0.002065493420729495,
+        0.003612141544442247,
+        0.0020686998441809775,
+        0.0027561807988210137,
+        0.0031821663899413515,
+        0.0035692122761784885,
+        0.0008362129411828053,
+        0.0009544690644534995,
+        0.0008175447043597073,
+        0.002912133292981037,
+        0.0034535697590664925,
+        0.0033156066487602344,
+        0.00314645774299906,
+        0.0010909767910032874,
+        0.006296233421719207,
+        0.004482531119233623,
+        0.006049919045672271,
+        0.009548716340741356,
+        0.003017457541090346,
+        0.007400895360164062,
+        0.011321349934160741,
+        0.0025705376319138146,
+        0.0008333739725685886,
+        0.0038503360946204176,
+        0.018853596455996432,
+        0.00174915515115624,
+        0.00596712840371769,
+        0.0075940935772078905,
+        0.004364468043678712,
+        0.00534372917659977,
+        0.0002373755802479413,
+        0.002438485406203567,
+        0.0010110602972694632,
+        0.0021994117909757463,
+        0.006783038312487304,
+        0.005753384705196662,
+        0.004741863645464328
+      ],
+      "source_max_error_m": 0.018853596455996432,
+      "source_in_plane_rms_error_m": 0.0013216463491098928,
+      "source_normal_rms_error_m": 0.005282366407792372,
+      "microphone_rms_error_m": 0.0006304292957627559,
+      "microphone_max_error_m": 0.0009007303890398663,
+      "matched_event_ids": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39
+      ],
+      "status": "weakly_identified",
+      "tdoa_rms_s": 2.7090018389742322e-06,
+      "rejection_reasons": [
+        "planar_receiver_completion_failure",
+        "planar_source_completion_fit_failed",
+        "planar_receiver_completion_failure",
+        "planar_receiver_completion_failure",
+        "planar_receiver_completion_failure",
+        "planar_receiver_completion_failure",
+        "incomplete_source_coverage"
+      ],
+      "acceptance_class": "standard",
+      "accepted": false,
+      "elapsed_s": 3.3506089379952755,
+      "process_peak_rss_kib": 240632
+    },
+    {
+      "scenario": "grid-equal",
+      "microphones": 24,
+      "events": 40,
+      "span": 2.0,
+      "seed": 12,
+      "stage": "arrival-noise",
+      "case_id": "grid-equal/24/40/2.0/12/arrival-noise",
+      "standard_success": false,
+      "configuration": {
+        "name": "grid",
+        "provenance": "synthetic declared grid topology",
+        "arms": null,
+        "rays": null,
+        "angle_deg": null,
+        "grid_slots": [
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            1,
+            0,
+            1
+          ],
+          [
+            2,
+            0,
+            2
+          ],
+          [
+            3,
+            0,
+            3
+          ],
+          [
+            4,
+            0,
+            4
+          ],
+          [
+            5,
+            0,
+            5
+          ],
+          [
+            6,
+            1,
+            0
+          ],
+          [
+            7,
+            1,
+            1
+          ],
+          [
+            8,
+            1,
+            2
+          ],
+          [
+            9,
+            1,
+            3
+          ],
+          [
+            10,
+            1,
+            4
+          ],
+          [
+            11,
+            1,
+            5
+          ],
+          [
+            12,
+            2,
+            0
+          ],
+          [
+            13,
+            2,
+            1
+          ],
+          [
+            14,
+            2,
+            2
+          ],
+          [
+            15,
+            2,
+            3
+          ],
+          [
+            16,
+            2,
+            4
+          ],
+          [
+            17,
+            2,
+            5
+          ],
+          [
+            18,
+            3,
+            0
+          ],
+          [
+            19,
+            3,
+            1
+          ],
+          [
+            20,
+            3,
+            2
+          ],
+          [
+            21,
+            3,
+            3
+          ],
+          [
+            22,
+            3,
+            4
+          ],
+          [
+            23,
+            3,
+            5
+          ]
+        ],
+        "equal_row_spacing": true,
+        "equal_column_spacing": true,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 40,
+      "matched_events": 0,
+      "unresolved_events": 40,
+      "source_rms_error_m": null,
+      "source_errors_m": [],
+      "source_max_error_m": null,
+      "source_in_plane_rms_error_m": null,
+      "source_normal_rms_error_m": null,
+      "microphone_rms_error_m": null,
+      "microphone_max_error_m": null,
+      "status": "failed",
+      "tdoa_rms_s": null,
+      "rejection_reasons": [
+        "insufficient_planar_expansion",
+        "planar_receiver_completion_failure",
+        "planar_receiver_completion_failure",
+        "planar_receiver_completion_failure",
+        "negative_source_height_squared",
+        "planar_receiver_completion_failure"
+      ],
+      "acceptance_class": "standard",
+      "accepted": false,
+      "elapsed_s": 3.1661659800156485,
+      "process_peak_rss_kib": 261632
+    },
+    {
+      "scenario": "grid-equal",
+      "microphones": 24,
+      "events": 40,
+      "span": 4.0,
+      "seed": 11,
+      "stage": "arrival-noise",
+      "case_id": "grid-equal/24/40/4.0/11/arrival-noise",
+      "standard_success": false,
+      "configuration": {
+        "name": "grid",
+        "provenance": "synthetic declared grid topology",
+        "arms": null,
+        "rays": null,
+        "angle_deg": null,
+        "grid_slots": [
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            1,
+            0,
+            1
+          ],
+          [
+            2,
+            0,
+            2
+          ],
+          [
+            3,
+            0,
+            3
+          ],
+          [
+            4,
+            0,
+            4
+          ],
+          [
+            5,
+            0,
+            5
+          ],
+          [
+            6,
+            1,
+            0
+          ],
+          [
+            7,
+            1,
+            1
+          ],
+          [
+            8,
+            1,
+            2
+          ],
+          [
+            9,
+            1,
+            3
+          ],
+          [
+            10,
+            1,
+            4
+          ],
+          [
+            11,
+            1,
+            5
+          ],
+          [
+            12,
+            2,
+            0
+          ],
+          [
+            13,
+            2,
+            1
+          ],
+          [
+            14,
+            2,
+            2
+          ],
+          [
+            15,
+            2,
+            3
+          ],
+          [
+            16,
+            2,
+            4
+          ],
+          [
+            17,
+            2,
+            5
+          ],
+          [
+            18,
+            3,
+            0
+          ],
+          [
+            19,
+            3,
+            1
+          ],
+          [
+            20,
+            3,
+            2
+          ],
+          [
+            21,
+            3,
+            3
+          ],
+          [
+            22,
+            3,
+            4
+          ],
+          [
+            23,
+            3,
+            5
+          ]
+        ],
+        "equal_row_spacing": true,
+        "equal_column_spacing": true,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 40,
+      "matched_events": 39,
+      "unresolved_events": 1,
+      "source_rms_error_m": 0.004000648441548337,
+      "source_errors_m": [
+        0.0018346639266240026,
+        0.0028167533599887037,
+        6.887537072609463e-05,
+        0.0018056052985002487,
+        0.0008496142553885678,
+        0.000599778748130376,
+        0.0016027474136499611,
+        0.0009975097420825303,
+        0.0003557504518198385,
+        0.0004278247137693145,
+        0.0005415349341207462,
+        0.0010958131661742956,
+        0.001507369716444653,
+        0.0015206662983016802,
+        0.0011341729883717932,
+        0.0018048050076238562,
+        0.003401136024886307,
+        0.0022442890543818875,
+        0.0032386058694681037,
+        0.00619389362090608,
+        0.0006070804618315951,
+        0.004502801510713479,
+        0.007891032370729715,
+        0.0007911384441408075,
+        0.0033107296014855676,
+        0.0011597444393548744,
+        0.01529349829209511,
+        0.0044434786348853525,
+        0.008832730776169197,
+        0.004515204580753629,
+        0.0011759789700329642,
+        0.0021441544430394937,
+        0.0032705156359089348,
+        0.0008440865228927104,
+        0.0033907801128979496,
+        0.005051160852111602,
+        0.0037537663480184877,
+        0.0028266114796976654,
+        0.0020585267154904783
+      ],
+      "source_max_error_m": 0.01529349829209511,
+      "source_in_plane_rms_error_m": 0.001117430160668081,
+      "source_normal_rms_error_m": 0.0038414239272556785,
+      "microphone_rms_error_m": 0.00020961867057610304,
+      "microphone_max_error_m": 0.00030263549173501186,
+      "matched_event_ids": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39
+      ],
+      "status": "weakly_identified",
+      "tdoa_rms_s": 2.7517268673175395e-06,
+      "rejection_reasons": [
+        "planar_receiver_completion_failure",
+        "planar_source_completion_fit_failed",
+        "planar_receiver_completion_failure",
+        "planar_receiver_completion_failure",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_receiver_completion_failure",
+        "incomplete_source_coverage"
+      ],
+      "acceptance_class": "standard",
+      "accepted": false,
+      "elapsed_s": 3.262130198010709,
+      "process_peak_rss_kib": 240768
+    },
+    {
+      "scenario": "grid-equal",
+      "microphones": 9,
+      "events": 40,
+      "span": 4.0,
+      "seed": 11,
+      "stage": "arrival-noise",
+      "case_id": "grid-equal/9/40/4.0/11/arrival-noise",
+      "standard_success": false,
+      "configuration": {
+        "name": "grid",
+        "provenance": "synthetic declared grid topology",
+        "arms": null,
+        "rays": null,
+        "angle_deg": null,
+        "grid_slots": [
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            1,
+            0,
+            1
+          ],
+          [
+            2,
+            0,
+            2
+          ],
+          [
+            3,
+            1,
+            0
+          ],
+          [
+            4,
+            1,
+            1
+          ],
+          [
+            5,
+            1,
+            2
+          ],
+          [
+            6,
+            2,
+            0
+          ],
+          [
+            7,
+            2,
+            1
+          ],
+          [
+            8,
+            2,
+            2
+          ]
+        ],
+        "equal_row_spacing": true,
+        "equal_column_spacing": true,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 40,
+      "matched_events": 34,
+      "unresolved_events": 6,
+      "source_rms_error_m": 0.00552605343102109,
+      "source_errors_m": [
+        0.0016289949947415011,
+        0.006154423041174064,
+        0.00610538220932052,
+        0.000608565855831049,
+        0.00384981931032242,
+        0.0009762406925581488,
+        0.0014099452435272631,
+        0.006192931986867477,
+        0.004557608326929784,
+        0.0032479014809727925,
+        0.004345725162199933,
+        0.0031158148871005095,
+        0.001681684236568602,
+        0.01265388397616228,
+        0.006442320754786906,
+        0.0024206224659639136,
+        0.0007879171058273075,
+        0.0009658680024192776,
+        0.0051043170223368985,
+        0.004979049381584369,
+        0.008228978351446875,
+        0.005138448699919689,
+        0.0020365888530574556,
+        0.0036528324692225323,
+        0.006529320023823872,
+        0.010617583882879051,
+        0.005717056627738267,
+        0.010159781992880274,
+        0.0047092685827529995,
+        0.00961572123244865,
+        0.004662052322831872,
+        0.0011114197333424978,
+        0.0032192998789903125,
+        0.00552235539182013
+      ],
+      "source_max_error_m": 0.01265388397616228,
+      "source_in_plane_rms_error_m": 0.0017040761422652197,
+      "source_normal_rms_error_m": 0.0052567471904080044,
+      "microphone_rms_error_m": 0.0006059664423058737,
+      "microphone_max_error_m": 0.0007421542924499115,
+      "matched_event_ids": [
+        0,
+        2,
+        4,
+        6,
+        7,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39
+      ],
+      "status": "weakly_identified",
+      "tdoa_rms_s": 2.0789734976151422e-06,
+      "rejection_reasons": [
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_receiver_completion_failure",
+        "planar_receiver_completion_failure",
+        "planar_receiver_completion_failure",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "incomplete_source_coverage"
+      ],
+      "acceptance_class": "standard",
+      "accepted": false,
+      "elapsed_s": 2.202275613002712,
+      "process_peak_rss_kib": 261632
+    },
+    {
+      "scenario": "grid-free",
+      "microphones": 16,
+      "events": 20,
+      "span": 2.0,
+      "seed": 10,
+      "stage": "arrival-noise",
+      "case_id": "grid-free/16/20/2.0/10/arrival-noise",
+      "standard_success": false,
+      "configuration": {
+        "name": "grid",
+        "provenance": "synthetic declared grid topology",
+        "arms": null,
+        "rays": null,
+        "angle_deg": null,
+        "grid_slots": [
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            1,
+            0,
+            1
+          ],
+          [
+            2,
+            0,
+            2
+          ],
+          [
+            3,
+            0,
+            3
+          ],
+          [
+            4,
+            1,
+            0
+          ],
+          [
+            5,
+            1,
+            1
+          ],
+          [
+            6,
+            1,
+            2
+          ],
+          [
+            7,
+            1,
+            3
+          ],
+          [
+            8,
+            2,
+            0
+          ],
+          [
+            9,
+            2,
+            1
+          ],
+          [
+            10,
+            2,
+            2
+          ],
+          [
+            11,
+            2,
+            3
+          ],
+          [
+            12,
+            3,
+            0
+          ],
+          [
+            13,
+            3,
+            1
+          ],
+          [
+            14,
+            3,
+            2
+          ],
+          [
+            15,
+            3,
+            3
+          ]
+        ],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 20,
+      "matched_events": 18,
+      "unresolved_events": 2,
+      "source_rms_error_m": 0.007059103498509742,
+      "source_errors_m": [
+        0.00636992531703242,
+        0.0059172864807597435,
+        0.009140182092193123,
+        0.008780769790511546,
+        0.011337755066008752,
+        0.0018762439605309461,
+        0.003899926000775488,
+        0.009765214853177698,
+        0.006909341688905252,
+        0.0029008608793117375,
+        0.003238164798655161,
+        0.0023695757995445647,
+        0.0074737700141135925,
+        0.010099885181232416,
+        0.007524107723010332,
+        0.00462469052875547,
+        0.010301449147981005,
+        0.0019618179401908395
+      ],
+      "source_max_error_m": 0.011337755066008752,
+      "source_in_plane_rms_error_m": 0.001914792262163415,
+      "source_normal_rms_error_m": 0.006794447203079261,
+      "microphone_rms_error_m": 0.001119807057245418,
+      "microphone_max_error_m": 0.0015980523060520283,
+      "matched_event_ids": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        11,
+        12,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "status": "weakly_identified",
+      "tdoa_rms_s": 2.2083427142264088e-06,
+      "rejection_reasons": [
+        "planar_receiver_completion_failure",
+        "planar_offset_failure",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_validation_unresolved",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_receiver_completion_failure",
+        "incomplete_source_coverage"
+      ],
+      "acceptance_class": "standard",
+      "accepted": false,
+      "elapsed_s": 2.4422305279877037,
+      "process_peak_rss_kib": 240288
+    },
+    {
+      "scenario": "grid-free",
+      "microphones": 16,
+      "events": 20,
+      "span": 2.0,
+      "seed": 11,
+      "stage": "arrival-noise",
+      "case_id": "grid-free/16/20/2.0/11/arrival-noise",
+      "standard_success": false,
+      "configuration": {
+        "name": "grid",
+        "provenance": "synthetic declared grid topology",
+        "arms": null,
+        "rays": null,
+        "angle_deg": null,
+        "grid_slots": [
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            1,
+            0,
+            1
+          ],
+          [
+            2,
+            0,
+            2
+          ],
+          [
+            3,
+            0,
+            3
+          ],
+          [
+            4,
+            1,
+            0
+          ],
+          [
+            5,
+            1,
+            1
+          ],
+          [
+            6,
+            1,
+            2
+          ],
+          [
+            7,
+            1,
+            3
+          ],
+          [
+            8,
+            2,
+            0
+          ],
+          [
+            9,
+            2,
+            1
+          ],
+          [
+            10,
+            2,
+            2
+          ],
+          [
+            11,
+            2,
+            3
+          ],
+          [
+            12,
+            3,
+            0
+          ],
+          [
+            13,
+            3,
+            1
+          ],
+          [
+            14,
+            3,
+            2
+          ],
+          [
+            15,
+            3,
+            3
+          ]
+        ],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 20,
+      "matched_events": 18,
+      "unresolved_events": 2,
+      "source_rms_error_m": 0.005703165202790633,
+      "source_errors_m": [
+        0.004813571492825075,
+        0.0048204069574242295,
+        0.006717483093251684,
+        0.0005027231537803432,
+        0.004182928920177609,
+        0.00392811279741734,
+        0.005649869964604421,
+        0.0055600730383135975,
+        0.0068771350133407195,
+        0.001374981897672132,
+        0.00039404482709059726,
+        0.0020488191304195644,
+        0.008097501284844896,
+        0.0033450264970522328,
+        0.007311755687160611,
+        0.007246793467491193,
+        0.0026774462500014392,
+        0.012428975915469704
+      ],
+      "source_max_error_m": 0.012428975915469704,
+      "source_in_plane_rms_error_m": 0.0019217743897118262,
+      "source_normal_rms_error_m": 0.005369625361733319,
+      "microphone_rms_error_m": 0.0003934380844949148,
+      "microphone_max_error_m": 0.0006320128788926711,
+      "matched_event_ids": [
+        0,
+        1,
+        2,
+        4,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "status": "weakly_identified",
+      "tdoa_rms_s": 2.90298823678698e-06,
+      "rejection_reasons": [
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_receiver_completion_failure",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_validation_unresolved",
+        "planar_receiver_completion_failure",
+        "planar_receiver_completion_failure",
+        "incomplete_source_coverage"
+      ],
+      "acceptance_class": "standard",
+      "accepted": false,
+      "elapsed_s": 2.403369618987199,
+      "process_peak_rss_kib": 261632
+    },
+    {
+      "scenario": "grid-free",
+      "microphones": 16,
+      "events": 20,
+      "span": 2.0,
+      "seed": 12,
+      "stage": "arrival-noise",
+      "case_id": "grid-free/16/20/2.0/12/arrival-noise",
+      "standard_success": false,
+      "configuration": {
+        "name": "grid",
+        "provenance": "synthetic declared grid topology",
+        "arms": null,
+        "rays": null,
+        "angle_deg": null,
+        "grid_slots": [
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            1,
+            0,
+            1
+          ],
+          [
+            2,
+            0,
+            2
+          ],
+          [
+            3,
+            0,
+            3
+          ],
+          [
+            4,
+            1,
+            0
+          ],
+          [
+            5,
+            1,
+            1
+          ],
+          [
+            6,
+            1,
+            2
+          ],
+          [
+            7,
+            1,
+            3
+          ],
+          [
+            8,
+            2,
+            0
+          ],
+          [
+            9,
+            2,
+            1
+          ],
+          [
+            10,
+            2,
+            2
+          ],
+          [
+            11,
+            2,
+            3
+          ],
+          [
+            12,
+            3,
+            0
+          ],
+          [
+            13,
+            3,
+            1
+          ],
+          [
+            14,
+            3,
+            2
+          ],
+          [
+            15,
+            3,
+            3
+          ]
+        ],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 20,
+      "matched_events": 19,
+      "unresolved_events": 1,
+      "source_rms_error_m": 0.0037102750614619773,
+      "source_errors_m": [
+        0.0033935436016746274,
+        0.002898324596748648,
+        0.001382761510654588,
+        0.0015989430351656946,
+        0.0063049479819839,
+        0.005084281604632377,
+        0.003180806905116835,
+        0.004871434054521954,
+        0.002944841377737266,
+        0.0015398001359685307,
+        0.0010695581220642883,
+        0.005477827896022832,
+        0.0069017860300346935,
+        0.005230067792951407,
+        0.0026346617553019455,
+        0.0012596413183481824,
+        0.002837258732845225,
+        0.0016287412128577789,
+        0.0011437024519638072
+      ],
+      "source_max_error_m": 0.0069017860300346935,
+      "source_in_plane_rms_error_m": 0.0012187416788368881,
+      "source_normal_rms_error_m": 0.0035043986291477354,
+      "microphone_rms_error_m": 0.00018161744051115662,
+      "microphone_max_error_m": 0.00028206968673425656,
+      "matched_event_ids": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        19
+      ],
+      "status": "weakly_identified",
+      "tdoa_rms_s": 2.118667894788918e-06,
+      "rejection_reasons": [
+        "planar_receiver_completion_failure",
+        "planar_receiver_completion_failure",
+        "planar_source_completion_fit_failed",
+        "planar_receiver_completion_failure",
+        "planar_receiver_completion_failure",
+        "incomplete_source_coverage"
+      ],
+      "acceptance_class": "standard",
+      "accepted": false,
+      "elapsed_s": 2.4107328839891125,
+      "process_peak_rss_kib": 240288
+    },
+    {
+      "scenario": "grid-free",
+      "microphones": 24,
+      "events": 40,
+      "span": 2.0,
+      "seed": 12,
+      "stage": "arrival-noise",
+      "case_id": "grid-free/24/40/2.0/12/arrival-noise",
+      "standard_success": false,
+      "configuration": {
+        "name": "grid",
+        "provenance": "synthetic declared grid topology",
+        "arms": null,
+        "rays": null,
+        "angle_deg": null,
+        "grid_slots": [
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            1,
+            0,
+            1
+          ],
+          [
+            2,
+            0,
+            2
+          ],
+          [
+            3,
+            0,
+            3
+          ],
+          [
+            4,
+            0,
+            4
+          ],
+          [
+            5,
+            0,
+            5
+          ],
+          [
+            6,
+            1,
+            0
+          ],
+          [
+            7,
+            1,
+            1
+          ],
+          [
+            8,
+            1,
+            2
+          ],
+          [
+            9,
+            1,
+            3
+          ],
+          [
+            10,
+            1,
+            4
+          ],
+          [
+            11,
+            1,
+            5
+          ],
+          [
+            12,
+            2,
+            0
+          ],
+          [
+            13,
+            2,
+            1
+          ],
+          [
+            14,
+            2,
+            2
+          ],
+          [
+            15,
+            2,
+            3
+          ],
+          [
+            16,
+            2,
+            4
+          ],
+          [
+            17,
+            2,
+            5
+          ],
+          [
+            18,
+            3,
+            0
+          ],
+          [
+            19,
+            3,
+            1
+          ],
+          [
+            20,
+            3,
+            2
+          ],
+          [
+            21,
+            3,
+            3
+          ],
+          [
+            22,
+            3,
+            4
+          ],
+          [
+            23,
+            3,
+            5
+          ]
+        ],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 40,
+      "matched_events": 0,
+      "unresolved_events": 40,
+      "source_rms_error_m": null,
+      "source_errors_m": [],
+      "source_max_error_m": null,
+      "source_in_plane_rms_error_m": null,
+      "source_normal_rms_error_m": null,
+      "microphone_rms_error_m": null,
+      "microphone_max_error_m": null,
+      "status": "failed",
+      "tdoa_rms_s": null,
+      "rejection_reasons": [
+        "planar_receiver_completion_failure",
+        "planar_receiver_completion_failure",
+        "planar_receiver_completion_failure",
+        "planar_receiver_completion_failure",
+        "planar_receiver_completion_failure",
+        "insufficient_planar_expansion"
+      ],
+      "acceptance_class": "standard",
+      "accepted": false,
+      "elapsed_s": 3.113848314009374,
+      "process_peak_rss_kib": 261632
+    },
+    {
+      "scenario": "grid-free",
+      "microphones": 24,
+      "events": 40,
+      "span": 4.0,
+      "seed": 12,
+      "stage": "arrival-noise",
+      "case_id": "grid-free/24/40/4.0/12/arrival-noise",
+      "standard_success": false,
+      "configuration": {
+        "name": "grid",
+        "provenance": "synthetic declared grid topology",
+        "arms": null,
+        "rays": null,
+        "angle_deg": null,
+        "grid_slots": [
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            1,
+            0,
+            1
+          ],
+          [
+            2,
+            0,
+            2
+          ],
+          [
+            3,
+            0,
+            3
+          ],
+          [
+            4,
+            0,
+            4
+          ],
+          [
+            5,
+            0,
+            5
+          ],
+          [
+            6,
+            1,
+            0
+          ],
+          [
+            7,
+            1,
+            1
+          ],
+          [
+            8,
+            1,
+            2
+          ],
+          [
+            9,
+            1,
+            3
+          ],
+          [
+            10,
+            1,
+            4
+          ],
+          [
+            11,
+            1,
+            5
+          ],
+          [
+            12,
+            2,
+            0
+          ],
+          [
+            13,
+            2,
+            1
+          ],
+          [
+            14,
+            2,
+            2
+          ],
+          [
+            15,
+            2,
+            3
+          ],
+          [
+            16,
+            2,
+            4
+          ],
+          [
+            17,
+            2,
+            5
+          ],
+          [
+            18,
+            3,
+            0
+          ],
+          [
+            19,
+            3,
+            1
+          ],
+          [
+            20,
+            3,
+            2
+          ],
+          [
+            21,
+            3,
+            3
+          ],
+          [
+            22,
+            3,
+            4
+          ],
+          [
+            23,
+            3,
+            5
+          ]
+        ],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 40,
+      "matched_events": 0,
+      "unresolved_events": 40,
+      "source_rms_error_m": null,
+      "source_errors_m": [],
+      "source_max_error_m": null,
+      "source_in_plane_rms_error_m": null,
+      "source_normal_rms_error_m": null,
+      "microphone_rms_error_m": null,
+      "microphone_max_error_m": null,
+      "status": "failed",
+      "tdoa_rms_s": null,
+      "rejection_reasons": [
+        "planar_receiver_completion_failure",
+        "planar_receiver_completion_failure",
+        "planar_receiver_completion_failure",
+        "planar_receiver_completion_failure",
+        "planar_receiver_completion_failure",
+        "planar_receiver_completion_failure"
+      ],
+      "acceptance_class": "standard",
+      "accepted": false,
+      "elapsed_s": 3.1626353340107016,
+      "process_peak_rss_kib": 240632
+    },
+    {
+      "scenario": "grid-free",
+      "microphones": 9,
+      "events": 40,
+      "span": 4.0,
+      "seed": 11,
+      "stage": "arrival-noise",
+      "case_id": "grid-free/9/40/4.0/11/arrival-noise",
+      "standard_success": false,
+      "configuration": {
+        "name": "grid",
+        "provenance": "synthetic declared grid topology",
+        "arms": null,
+        "rays": null,
+        "angle_deg": null,
+        "grid_slots": [
+          [
+            0,
+            0,
+            0
+          ],
+          [
+            1,
+            0,
+            1
+          ],
+          [
+            2,
+            0,
+            2
+          ],
+          [
+            3,
+            1,
+            0
+          ],
+          [
+            4,
+            1,
+            1
+          ],
+          [
+            5,
+            1,
+            2
+          ],
+          [
+            6,
+            2,
+            0
+          ],
+          [
+            7,
+            2,
+            1
+          ],
+          [
+            8,
+            2,
+            2
+          ]
+        ],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 40,
+      "matched_events": 32,
+      "unresolved_events": 8,
+      "source_rms_error_m": 0.006292049019356251,
+      "source_errors_m": [
+        0.0012011982748610203,
+        0.009922067420413773,
+        0.008857518730575747,
+        0.0015819488905809698,
+        0.006622705347715038,
+        0.001225133701708429,
+        0.0019552253287643713,
+        0.004249757774979286,
+        0.003220445502108798,
+        0.0021580750014186835,
+        0.001101461311548343,
+        0.010857552255592502,
+        0.008511335485463187,
+        0.0017938176004911593,
+        0.0014230566910272753,
+        0.000999743716712555,
+        0.004122123692072558,
+        0.002930531627625645,
+        0.010463584934919456,
+        0.00633430836334742,
+        0.004626448426219439,
+        0.0033762192284124094,
+        0.005427561567121029,
+        0.014728654619669957,
+        0.007706806906388449,
+        0.008427140993174355,
+        0.004413740981124126,
+        0.011036842299905689,
+        0.004305830539897787,
+        0.0020585080950255947,
+        0.001730740204815107,
+        0.007355781563764438
+      ],
+      "source_max_error_m": 0.014728654619669957,
+      "source_in_plane_rms_error_m": 0.0019947881958385333,
+      "source_normal_rms_error_m": 0.0059674702274686905,
+      "microphone_rms_error_m": 0.0006198042492839927,
+      "microphone_max_error_m": 0.0008126939381988738,
+      "matched_event_ids": [
+        0,
+        2,
+        4,
+        6,
+        7,
+        11,
+        12,
+        14,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39
+      ],
+      "status": "weakly_identified",
+      "tdoa_rms_s": 1.9805145894826498e-06,
+      "rejection_reasons": [
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_validation_unresolved",
+        "planar_receiver_completion_failure",
+        "planar_receiver_completion_failure",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "planar_receiver_completion_failure",
+        "incomplete_source_coverage"
+      ],
+      "acceptance_class": "standard",
+      "accepted": false,
+      "elapsed_s": 2.253973376005888,
+      "process_peak_rss_kib": 261632
+    },
+    {
+      "scenario": "star",
+      "microphones": 16,
+      "events": 40,
+      "span": 2.0,
+      "seed": 12,
+      "stage": "arrival-noise",
+      "case_id": "star/16/40/2.0/12/arrival-noise",
+      "standard_success": false,
+      "configuration": {
+        "name": "arbitrary-planar",
+        "provenance": "",
+        "arms": null,
+        "rays": null,
+        "angle_deg": null,
+        "grid_slots": [],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 40,
+      "matched_events": 40,
+      "unresolved_events": 0,
+      "source_rms_error_m": 0.0068601064279285775,
+      "source_errors_m": [
+        0.006192201676735325,
+        0.0027841406693307758,
+        0.005058501931369453,
+        0.00907653537429422,
+        0.0014042568937814015,
+        0.010005699173890463,
+        0.007013976585699523,
+        0.0022283643454344463,
+        0.006068483563154721,
+        0.008752359739505675,
+        0.009370730952727637,
+        0.01134892125950701,
+        0.01655743881921528,
+        0.015122598440322023,
+        0.008690687414238521,
+        0.006229341352092239,
+        0.0055738217822715085,
+        0.013287346704387346,
+        0.002664532762667972,
+        0.007046083329128876,
+        0.0096779023698858,
+        0.007200841725878566,
+        0.003195275988271227,
+        0.002413681904254999,
+        0.005857963218437916,
+        0.002657300156409554,
+        0.0013639631476256159,
+        0.003470496160339666,
+        0.004191912939291337,
+        0.004994288889771849,
+        0.004743386631598339,
+        0.003990100119070336,
+        0.0033017069996094236,
+        0.0024226841218879993,
+        0.0056345958161433595,
+        0.0015228529205075728,
+        0.0016924975212654352,
+        0.002367712784618475,
+        0.001603571187106073,
+        0.0009483201740499347
+      ],
+      "source_max_error_m": 0.01655743881921528,
+      "source_in_plane_rms_error_m": 0.002186288817583555,
+      "source_normal_rms_error_m": 0.006502399665401696,
+      "microphone_rms_error_m": 0.0011563824051898691,
+      "microphone_max_error_m": 0.0025404652152314798,
+      "matched_event_ids": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39
+      ],
+      "status": "weakly_identified",
+      "tdoa_rms_s": 2.602455269691099e-06,
+      "rejection_reasons": [
+        "planar_receiver_completion_failure",
+        "planar_fit_exceeds_timing_uncertainty"
+      ],
+      "acceptance_class": "standard",
+      "accepted": false,
+      "elapsed_s": 4.1520499260223005,
+      "process_peak_rss_kib": 231552
+    },
+    {
+      "scenario": "star",
+      "microphones": 16,
+      "events": 40,
+      "span": 4.0,
+      "seed": 12,
+      "stage": "arrival-noise",
+      "case_id": "star/16/40/4.0/12/arrival-noise",
+      "standard_success": false,
+      "configuration": {
+        "name": "arbitrary-planar",
+        "provenance": "",
+        "arms": null,
+        "rays": null,
+        "angle_deg": null,
+        "grid_slots": [],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 40,
+      "matched_events": 40,
+      "unresolved_events": 0,
+      "source_rms_error_m": 0.006864631311026267,
+      "source_errors_m": [
+        0.008229706738519863,
+        0.003184036855055043,
+        0.0027965279339876884,
+        0.010912294262940119,
+        0.0030982120215839186,
+        0.00800230682075588,
+        0.008071678031917396,
+        0.0015208117731217467,
+        0.0019730002740971486,
+        0.004963430906597733,
+        0.0026262906453197303,
+        0.02305077804991719,
+        0.019354734845267528,
+        0.008764361432132113,
+        0.006845267688221283,
+        0.00492183322890019,
+        0.00255599300261077,
+        0.0042929247740851224,
+        0.013311646073356468,
+        0.008340759619649937,
+        0.005348692051925055,
+        0.007407412807567466,
+        0.0006496154551877714,
+        0.002836078883028088,
+        0.002409142554449419,
+        0.0010635946457945543,
+        0.002371807138760003,
+        0.004062629740602494,
+        0.004602148094805054,
+        0.003477504717268743,
+        0.0028880428988001475,
+        0.0007004873924189238,
+        0.001617399801513376,
+        0.001371408830176501,
+        0.0026117802699703323,
+        0.000725047826209228,
+        0.0014420503961576773,
+        0.0005385192560155626,
+        0.0006146115250647165,
+        0.0005997899337008059
+      ],
+      "source_max_error_m": 0.02305077804991719,
+      "source_in_plane_rms_error_m": 0.001977463319532252,
+      "source_normal_rms_error_m": 0.006573644488122756,
+      "microphone_rms_error_m": 0.0010706191908734374,
+      "microphone_max_error_m": 0.002608750343625397,
+      "matched_event_ids": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39
+      ],
+      "status": "weakly_identified",
+      "tdoa_rms_s": 2.6454618366614874e-06,
+      "rejection_reasons": [
+        "planar_fit_exceeds_timing_uncertainty"
+      ],
+      "acceptance_class": "standard",
+      "accepted": false,
+      "elapsed_s": 3.7702212919830345,
+      "process_peak_rss_kib": 240288
+    },
+    {
+      "scenario": "t60",
+      "microphones": 8,
+      "events": 20,
+      "span": 2.0,
+      "seed": 10,
+      "stage": "arrival-noise",
+      "case_id": "t60/8/20/2.0/10/arrival-noise",
+      "standard_success": false,
+      "configuration": {
+        "name": "t",
+        "provenance": "synthetic declared two-line construction",
+        "arms": [
+          [
+            0,
+            1,
+            2,
+            3,
+            4
+          ],
+          [
+            2,
+            5,
+            6,
+            7
+          ]
+        ],
+        "rays": [
+          [
+            2,
+            4
+          ],
+          [
+            2,
+            7
+          ]
+        ],
+        "angle_deg": 60,
+        "grid_slots": [],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 20,
+      "matched_events": 19,
+      "unresolved_events": 1,
+      "source_rms_error_m": 0.025327500629031524,
+      "source_errors_m": [
+        0.029119135847250524,
+        0.009166238807959267,
+        0.026103015637954686,
+        0.03180294467979921,
+        0.04013973945736334,
+        0.032157037853627946,
+        0.03133098022805501,
+        0.024709026857474458,
+        0.015500829886105662,
+        0.013265415110079613,
+        0.01836967931499301,
+        0.02507879995431861,
+        0.024009092232743764,
+        0.022290819851771438,
+        0.025360825626216586,
+        0.02278142235229122,
+        0.028840628170103536,
+        0.01808136722653282,
+        0.023433882514623423
+      ],
+      "source_max_error_m": 0.04013973945736334,
+      "source_in_plane_rms_error_m": 0.006088533064168642,
+      "source_normal_rms_error_m": 0.024584793129902832,
+      "microphone_rms_error_m": 0.004754163197164048,
+      "microphone_max_error_m": 0.007681427679008346,
+      "matched_event_ids": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "status": "weakly_identified",
+      "tdoa_rms_s": 1.4577982893363838e-06,
+      "rejection_reasons": [
+        "constraint_receivers_not_in_subset",
+        "planar_source_completion_fit_failed",
+        "planar_source_completion_fit_failed",
+        "incomplete_source_coverage"
+      ],
+      "acceptance_class": "standard",
+      "accepted": false,
+      "elapsed_s": 1.9972878319968004,
+      "process_peak_rss_kib": 240288
+    },
+    {
+      "scenario": "t75",
+      "microphones": 8,
+      "events": 20,
+      "span": 2.0,
+      "seed": 10,
+      "stage": "arrival-noise",
+      "case_id": "t75/8/20/2.0/10/arrival-noise",
+      "standard_success": false,
+      "configuration": {
+        "name": "t",
+        "provenance": "synthetic declared two-line construction",
+        "arms": [
+          [
+            0,
+            1,
+            2,
+            3,
+            4
+          ],
+          [
+            2,
+            5,
+            6,
+            7
+          ]
+        ],
+        "rays": [
+          [
+            2,
+            4
+          ],
+          [
+            2,
+            7
+          ]
+        ],
+        "angle_deg": 75,
+        "grid_slots": [],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 20,
+      "matched_events": 19,
+      "unresolved_events": 1,
+      "source_rms_error_m": 0.024061530670983693,
+      "source_errors_m": [
+        0.027428362325219453,
+        0.007360425924414619,
+        0.024384240209252867,
+        0.030239652403853557,
+        0.03859547054553117,
+        0.030652127463550366,
+        0.029971517702448436,
+        0.023611291816278978,
+        0.014759771293447839,
+        0.012533859267926164,
+        0.017047881549126478,
+        0.022990602310870054,
+        0.022362815499922854,
+        0.02097927246241128,
+        0.02396209348503188,
+        0.021462232896621625,
+        0.02785756725931418,
+        0.01753718526489234,
+        0.023386807751444014
+      ],
+      "source_max_error_m": 0.03859547054553117,
+      "source_in_plane_rms_error_m": 0.005296884680888992,
+      "source_normal_rms_error_m": 0.023471264791400832,
+      "microphone_rms_error_m": 0.004643352082529115,
+      "microphone_max_error_m": 0.007596637486408015,
+      "matched_event_ids": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19
+      ],
+      "status": "weakly_identified",
+      "tdoa_rms_s": 1.467408237618412e-06,
+      "rejection_reasons": [
+        "constraint_receivers_not_in_subset",
+        "planar_receiver_completion_failure",
+        "planar_source_completion_fit_failed",
+        "incomplete_source_coverage"
+      ],
+      "acceptance_class": "standard",
+      "accepted": false,
+      "elapsed_s": 1.9978653059806675,
+      "process_peak_rss_kib": 261632
+    },
+    {
+      "scenario": "t75",
+      "microphones": 8,
+      "events": 20,
+      "span": 4.0,
+      "seed": 12,
+      "stage": "arrival-noise",
+      "case_id": "t75/8/20/4.0/12/arrival-noise",
+      "standard_success": false,
+      "configuration": {
+        "name": "t",
+        "provenance": "synthetic declared two-line construction",
+        "arms": [
+          [
+            0,
+            1,
+            2,
+            3,
+            4
+          ],
+          [
+            2,
+            5,
+            6,
+            7
+          ]
+        ],
+        "rays": [
+          [
+            2,
+            4
+          ],
+          [
+            2,
+            7
+          ]
+        ],
+        "angle_deg": 75,
+        "grid_slots": [],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 20,
+      "matched_events": 19,
+      "unresolved_events": 1,
+      "source_rms_error_m": 0.0264579129603919,
+      "source_errors_m": [
+        0.016272870030207668,
+        0.005034013114153304,
+        0.016211967421733746,
+        0.0323555338613791,
+        0.03903873792966581,
+        0.03331748995928984,
+        0.04717945845615109,
+        0.03673602462520818,
+        0.035679083560230467,
+        0.02777865869702655,
+        0.03472713805332213,
+        0.025190261229859217,
+        0.02402938658199137,
+        0.01811383152605007,
+        0.01662690500852685,
+        0.013541671472773686,
+        0.008577948466537467,
+        0.0071244865840680086,
+        0.010777942279767748
+      ],
+      "source_max_error_m": 0.04717945845615109,
+      "source_in_plane_rms_error_m": 0.004728387720893286,
+      "source_normal_rms_error_m": 0.026031970877760664,
+      "microphone_rms_error_m": 0.0036968568450654483,
+      "microphone_max_error_m": 0.005873986744311355,
+      "matched_event_ids": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        17,
+        18,
+        19
+      ],
+      "status": "weakly_identified",
+      "tdoa_rms_s": 1.5251444735514564e-06,
+      "rejection_reasons": [
+        "constraint_receivers_not_in_subset",
+        "planar_receiver_completion_failure",
+        "planar_source_completion_fit_failed",
+        "incomplete_source_coverage"
+      ],
+      "acceptance_class": "standard",
+      "accepted": false,
+      "elapsed_s": 1.9655144879943691,
+      "process_peak_rss_kib": 240288
+    },
+    {
+      "scenario": "t90",
+      "microphones": 8,
+      "events": 40,
+      "span": 4.0,
+      "seed": 12,
+      "stage": "arrival-noise",
+      "case_id": "t90/8/40/4.0/12/arrival-noise",
+      "standard_success": false,
+      "configuration": {
+        "name": "t",
+        "provenance": "synthetic declared two-line construction",
+        "arms": [
+          [
+            0,
+            1,
+            2,
+            3,
+            4
+          ],
+          [
+            2,
+            5,
+            6,
+            7
+          ]
+        ],
+        "rays": [
+          [
+            2,
+            4
+          ],
+          [
+            2,
+            7
+          ]
+        ],
+        "angle_deg": 90,
+        "grid_slots": [],
+        "equal_row_spacing": false,
+        "equal_column_spacing": false,
+        "angle_units": "degrees",
+        "metric_spacing": "unknown",
+        "conditioning": "conditional_on_exact_declared_construction"
+      },
+      "expected_events": 40,
+      "matched_events": 39,
+      "unresolved_events": 1,
+      "source_rms_error_m": 0.011464159204033939,
+      "source_errors_m": [
+        0.012602023703805065,
+        0.02481401163105865,
+        0.01564217545048637,
+        0.004733552882050233,
+        0.002691878487129989,
+        0.009607393929335602,
+        0.001170155010912775,
+        0.009766049699117794,
+        0.010770006580824104,
+        0.02127594299180174,
+        0.00777177626747226,
+        0.01654326768969901,
+        0.009326241664930285,
+        0.016846711060154496,
+        0.008345504193904478,
+        0.012678138621625932,
+        0.013494022639821806,
+        0.01460068927726723,
+        0.024899737733916807,
+        0.01414187502644632,
+        0.005904538876113827,
+        0.010021901012230364,
+        0.004895014031967924,
+        0.007537410762991598,
+        0.01587622228074383,
+        0.01549898570015808,
+        0.011293798944745435,
+        0.007407622469561862,
+        0.00599294087275903,
+        0.006381132990516291,
+        0.0025176122198784776,
+        0.004253984219605947,
+        0.004617172905791062,
+        0.003325441190966984,
+        0.0047915925525536165,
+        0.0023571571364380817,
+        0.0011022179741675736,
+        0.007514677832957689,
+        0.007624875127615866
+      ],
+      "source_max_error_m": 0.024899737733916807,
+      "source_in_plane_rms_error_m": 0.002762273082870712,
+      "source_normal_rms_error_m": 0.011126400750965429,
+      "microphone_rms_error_m": 0.001582863504789001,
+      "microphone_max_error_m": 0.0022316255427617007,
+      "matched_event_ids": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39
+      ],
+      "status": "weakly_identified",
+      "tdoa_rms_s": 1.729519048531259e-06,
+      "rejection_reasons": [
+        "constraint_receivers_not_in_subset",
+        "planar_source_completion_fit_failed",
+        "insufficient_planar_expansion",
+        "incomplete_source_coverage"
+      ],
+      "acceptance_class": "standard",
+      "accepted": false,
+      "elapsed_s": 1.8889291170053184,
+      "process_peak_rss_kib": 261632
+    }
+  ],
+  "complete": true,
+  "passed": 0,
+  "failed": 27,
+  "standard_recovery_passed": 0,
+  "stress_characterized": 0,
+  "accepted": false
+}
