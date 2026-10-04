@@ -268,3 +268,7 @@ readable `benchmarks/results/DEVELOPMENT_RESULTS.md` summary. Every expected ID,
 unsuccessful row and original source fingerprint is preserved. Final PR subset
 reproduction uses a frozen published source commit; matrix resume also checks
 runner/dependency/runtime fingerprints.
+
+Frozen source reproduction: commit `864299a` produced 10/10 passing exact/clean
+PR cases with no source changes, recording Python/dependency/runner fingerprints
+and frontend/geometry error budgets in `benchmarks/results/chirp_pr_frozen.json`.
