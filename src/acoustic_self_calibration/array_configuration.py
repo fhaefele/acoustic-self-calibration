@@ -69,6 +69,22 @@ class ArrayConfiguration:
         if declared != set(microphone_ids):
             raise ValueError("construction membership must cover exactly the input microphone IDs")
 
+    def metric_ambiguity_reason(self) -> str | None:
+        if self.name in {"cross", "t"} and self.angle_deg is None:
+            return "unknown_two_arm_angle_metric_family"
+        if (
+            self.name == "grid"
+            and min(
+                len({slot[1] for slot in self.grid_slots}),
+                len({slot[2] for slot in self.grid_slots}),
+            )
+            == 2
+        ):
+            # Two parallel rows/columns lie on a conic. Perpendicularity and
+            # equal pitch within either direction do not determine the gap.
+            return "two_parallel_lines_metric_family"
+        return None
+
     def angle_constraint(self) -> PlanarAngleConstraint | None:
         if self.rays is not None and self.angle_deg is not None:
             a, b = self.rays

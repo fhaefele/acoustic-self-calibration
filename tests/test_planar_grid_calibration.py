@@ -42,3 +42,49 @@ def test_two_row_grid_does_not_claim_unique_row_separation():
     config = ArrayConfiguration("grid", provenance="two-row fixture", grid_slots=slots)
     result = calibrate_audio(scene.audio, scene.sample_rate_hz, array_configuration=config)
     assert result.status in {"degenerate", "ambiguous"}, result.calibration.diagnostics
+
+
+def test_two_row_grid_has_continuous_ambiguity_even_with_equal_pitches():
+    from acoustic_self_calibration.array_configuration import ArrayConfiguration
+    from acoustic_self_calibration.chirps import make_array_chirp_scene
+    from acoustic_self_calibration.pipeline import calibrate_audio
+    from acoustic_self_calibration.stratified.solver import PlanarCalibrationResult
+
+    m = np.array([[x, y, 0.0] for y in [0.0, 1.0] for x in [-1.0, -0.3, 0.4, 1.1]])
+    sources = np.column_stack(
+        [np.linspace(-1, 1, 20), np.linspace(0.5, 1.5, 20), np.linspace(2, 4, 20)]
+    )
+    ranges = np.linalg.norm(sources[:, None] - m[None], axis=2)
+    for scale in [0.8, 1.2]:
+        alternative_mics = m.copy()
+        alternative_mics[:, 1] *= scale
+        alternative_sources = sources.copy()
+        alternative_sources[:, 1] = (sources[:, 1] + 0.5 * (scale**2 - 1)) / scale
+        alternative_sources[:, 2] = np.sqrt(
+            np.sum(sources**2, axis=1) - np.sum(alternative_sources[:, :2] ** 2, axis=1)
+        )
+        np.testing.assert_allclose(
+            np.linalg.norm(alternative_sources[:, None] - alternative_mics[None], axis=2),
+            ranges,
+            atol=1e-10,
+        )
+    config = ArrayConfiguration(
+        "grid",
+        provenance="declared two-row construction",
+        grid_slots=tuple((i, i // 4, i % 4) for i in range(8)),
+    )
+    scene = make_array_chirp_scene(m, seed=10)
+    result = calibrate_audio(scene.audio, scene.sample_rate_hz, array_configuration=config)
+    assert result.status == "degenerate"
+    assert result.microphone_positions_m is None
+    assert isinstance(result.calibration, PlanarCalibrationResult)
+    assert result.calibration.continuous_ambiguity_dimension == 1
+    for equal in [False, True]:
+        configured = ArrayConfiguration(
+            "grid",
+            provenance="two equal or free rows",
+            grid_slots=config.grid_slots,
+            equal_row_spacing=equal,
+            equal_column_spacing=equal,
+        )
+        assert configured.metric_ambiguity_reason() == "two_parallel_lines_metric_family"

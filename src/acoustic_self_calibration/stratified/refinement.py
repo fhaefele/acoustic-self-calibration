@@ -8,7 +8,12 @@ from scipy.optimize import least_squares
 
 from ..geometry import select_coordinate_gauge
 from ..measurements import EventTDOAMeasurements
-from .identifiability import PlanarNoiseSensitivity, planar_noise_sensitivity
+from .identifiability import (
+    GeometryNoiseSensitivity,
+    PlanarNoiseSensitivity,
+    geometry_noise_sensitivity,
+    planar_noise_sensitivity,
+)
 from .robustness import covariance_whitener, huber_loss
 from .solver import PlanarCalibrationResult, StratifiedCalibrationResult
 
@@ -742,4 +747,23 @@ def estimate_planar_noise_sensitivity(
         jacobian,
         canonical_mics[:, :2],
         whitened_residual=objective.residual(canonical_mics, canonical_sources),
+    )
+
+
+def estimate_spatial_noise_sensitivity(
+    microphones: np.ndarray,
+    sources: np.ndarray,
+    measurements: EventTDOAMeasurements,
+    *,
+    speed_of_sound: float = 343.0,
+) -> GeometryNoiseSensitivity:
+    """Project out source nuisance coordinates and all six spatial rigid gauges."""
+    event_mask = np.isfinite(sources).all(axis=1)
+    if not np.any(event_mask):
+        raise ValueError("at least one localized source is required")
+    objective = _MeasurementObjective(measurements, speed_of_sound, event_mask=event_mask)
+    return geometry_noise_sensitivity(
+        objective.jacobian(microphones, sources, np.arange(microphones.size)),
+        microphones,
+        whitened_residual=objective.residual(microphones, sources),
     )

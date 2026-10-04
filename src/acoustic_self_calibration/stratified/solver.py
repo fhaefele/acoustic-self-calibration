@@ -72,6 +72,11 @@ class StratifiedCalibrationDiagnostics:
     planar_relative_std: float | None = None
     planar_fit_p_value: float | None = None
     planar_reduced_chi_square: float | None = None
+    spatial_microphone_rms_std_m: float | None = None
+    spatial_relative_std: float | None = None
+    spatial_observable_rank: int | None = None
+    spatial_parameter_count: int | None = None
+    spatial_relative_std_limit: float | None = None
 
 
 @dataclass(frozen=True)
@@ -119,6 +124,21 @@ def _assess_planar_noise_sensitivity(
     measurements: EventTDOAMeasurements,
     speed_of_sound: float,
 ) -> PlanarCalibrationResult:
+    if result.status == "solved" and (
+        result.source_representative_positions_m is None
+        or not np.isfinite(result.source_representative_positions_m).all()
+    ):
+        result = replace(
+            result,
+            status="weakly_identified",
+            diagnostics=replace(
+                result.diagnostics,
+                rejection_reasons=(
+                    *result.diagnostics.rejection_reasons,
+                    "incomplete_source_coverage",
+                ),
+            ),
+        )
     if (
         result.angle_constraint is not None
         or result.microphone_positions_m is None
@@ -1835,6 +1855,38 @@ def _check_general_fit_uncertainty(
                 result.diagnostics,
                 rejection_reasons=result.diagnostics.rejection_reasons
                 + ("residual_exceeds_timing_uncertainty",),
+            ),
+        )
+    if np.all(np.isfinite(result.microphone_positions_m)) and np.any(
+        np.isfinite(result.source_positions_m).all(axis=1)
+    ):
+        from .refinement import estimate_spatial_noise_sensitivity
+
+        sensitivity = estimate_spatial_noise_sensitivity(
+            result.microphone_positions_m,
+            result.source_positions_m,
+            measurements,
+            speed_of_sound=speed_of_sound,
+        )
+        # This spatial gate rejects arrays unresolved even within their own
+        # aperture. The legacy confidence-to-sigma weights are conservative
+        # heuristics, so this is not a centimetre precision certificate. Actual
+        # 5/10 cm acceptance remains an independent benchmark requirement.
+        weak = sensitivity.relative_weakest_std > 1.0
+        result = replace(
+            result,
+            status="weakly_identified" if weak else result.status,
+            diagnostics=replace(
+                result.diagnostics,
+                spatial_microphone_rms_std_m=sensitivity.weakest_microphone_rms_std_m,
+                spatial_relative_std=sensitivity.relative_weakest_std,
+                spatial_observable_rank=sensitivity.observable_rank,
+                spatial_parameter_count=sensitivity.parameter_count,
+                spatial_relative_std_limit=1.0,
+                rejection_reasons=(
+                    *result.diagnostics.rejection_reasons,
+                    *(("spatial_geometry_noise_sensitive",) if weak else ()),
+                ),
             ),
         )
     return result

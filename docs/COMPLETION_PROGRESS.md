@@ -169,3 +169,44 @@ for microphones and 5 mm for sources. Event IDs survive edge-window rejection.
 
 The quiet-recording and absent-geometry checks pass. Broader low-SNR, channel
 failure and low-diversity characterization remains required for full M7 acceptance.
+
+### M6/M7 expanded diagnosis and corrections
+
+The first full development exact run attempted all 732 expected cases: all 552
+standard identifiable recovery cases passed the 1 mm gates; 56 negative cases
+reported degeneracy, four two-row grid cases reported numerical failure instead
+of degeneracy, and 120 sensitivity/stress cases were characterized separately.
+The two-row configuration handler now reports the exhibited one-dimensional
+metric family, including with independent equal-pitch declarations. All 12
+two-row exact rechecks pass. The original four failures remain archived.
+
+Stress generation exposed hundreds of false detections at low SNR under the
+relative-prominence-only detector. Detection now also requires energy above
+the recorded median plus eight robust noise deviations. Nine seed/SNR checks
+(10–12 × 40/20/10 dB) retain all 20 chirps; amplitude scaling preserves IDs.
+The interrupted before-fix stress report retains 18/22 rows and lists four
+unattempted cases explicitly. The corrected quick characterization completes
+22/22: eight accurate solved recoveries, twelve failed/weak cases, and two
+solved recordings missing one reference call each. Those two are coverage
+failures, not complete accuracy passes. No echoes were introduced.
+
+A nearly stationary room source previously produced incorrect `solved` geometry.
+Spatial Jacobian sensitivity now removes source nuisance coordinates and six
+rigid gauges, and records rank, conditional uncertainty and the applied limit.
+Recorded-waveform timing uses the 5% relative precision gate. Legacy heuristic
+confidence weights use an aperture-scale observability gate: their absolute
+sigma calibration does not certify centimetre precision. Both limits are
+exported; synthetic 5/10 cm accuracy/coverage gates remain unchanged. The
+low-motion stress result now reports weak identification (relative uncertainty
+17.7); normal room examples measure 0.006–0.013.
+
+Checks: 50 detection/sensitivity/refinement/export/failure tests passed in
+52.44 s; 17 configuration/public API/frame tests passed in 64.71 s. The final
+legacy audio regressions and broader noisy/audio matrices remain required.
+
+Final M7 focused run: 29 tests passed in 31.26 s (one WAV metadata warning);
+Ruff format/lint and Ty pass. The 10-case reliability PR subset passes again.
+The initial 96-case float/PCM development subset completed with 94 passes and
+two failures: rectangular room, 12 channels, seed 12, 40 dB (float and PCM).
+Those remain real M6 failures; clean versions passed and they are not hidden by
+the successful PR subset. The full noisy-arrival matrix remains in progress.

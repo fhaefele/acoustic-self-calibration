@@ -12,6 +12,31 @@ from .identifiability import planar_noise_sensitivity
 from .refinement import _MeasurementObjective, _raw_tdoa_rms
 
 
+def apply_array_configuration(
+    calibration, measurements, configuration, *, speed_of_sound, **options
+):
+    """Apply the same declared-construction semantics to audio and TDOA stages."""
+    reason = configuration.metric_ambiguity_reason()
+    if reason is not None:
+        return replace(
+            calibration,
+            status="degenerate",
+            microphone_positions_m=None,
+            source_representative_positions_m=None,
+            source_projected_positions_m=None,
+            source_unsigned_heights_m=None,
+            source_height_sign_known=None,
+            continuous_ambiguity_dimension=1,
+            diagnostics=replace(
+                calibration.diagnostics,
+                rejection_reasons=(*calibration.diagnostics.rejection_reasons, reason),
+            ),
+        )
+    return refine_structured(
+        calibration, measurements, configuration, speed_of_sound=speed_of_sound, **options
+    )
+
+
 def structured_coordinates(microphones, ids, configuration: ArrayConfiguration):
     """Return origin, basis, constant coordinate map, initial parameters and bounds.
 

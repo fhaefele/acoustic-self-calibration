@@ -55,3 +55,15 @@ def test_explicit_event_channel_is_respected() -> None:
     )
     assert detection.event_channel == 0
     assert len(detection.event_samples) == 20
+
+
+@pytest.mark.parametrize("snr_db", [40, 20, 10])
+def test_recorded_noise_floor_rejects_spurious_chirp_events(snr_db):
+    from acoustic_self_calibration.chirps import make_chirp_scene
+
+    scene = make_chirp_scene(seed=10, snr_db=snr_db)
+    first = detect_transient_events(scene.audio, scene.sample_rate_hz)
+    second = detect_transient_events(scene.audio * 0.013, scene.sample_rate_hz)
+    assert len(first.event_samples) == len(scene.event_times_s)
+    assert np.max(abs(first.event_times_s - scene.event_times_s)) < 0.02
+    np.testing.assert_array_equal(first.event_samples, second.event_samples)

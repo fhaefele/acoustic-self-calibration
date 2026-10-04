@@ -97,7 +97,7 @@ def diagnose_planar_identifiability(
 
 
 @dataclass(frozen=True)
-class PlanarNoiseSensitivity:
+class GeometryNoiseSensitivity:
     """Local geometry uncertainty after removing source positions and rigid gauge."""
 
     weakest_microphone_rms_std_m: float
@@ -110,39 +110,44 @@ class PlanarNoiseSensitivity:
     noise_scale_inflation: float
 
 
-def planar_noise_sensitivity(
+def geometry_noise_sensitivity(
     whitened_jacobian: np.ndarray,
-    microphone_positions_2d_m: np.ndarray,
+    microphone_positions_m: np.ndarray,
     *,
     whitened_residual: np.ndarray | None = None,
     coordinate_tangent: np.ndarray | None = None,
-) -> PlanarNoiseSensitivity:
-    """Assess an unconstrained planar fit using its noise-whitened TDOA Jacobian.
+) -> GeometryNoiseSensitivity:
+    """Assess a 2-D or 3-D fit using its noise-whitened TDOA Jacobian.
 
-    Columns must contain all 2N microphone coordinates followed by source
+    Columns must contain all microphone coordinates followed by source
     coordinates. Source motion is nuisance information and is projected out.
-    Two translations and one in-plane rotation are also removed. The remaining
+    Translations and rotations in the microphone dimension are removed. The remaining
     weakest singular mode gives a one-standard-deviation microphone RMS change.
     Residual variance above the declared noise inflates uncertainty. The fit
     p-value assumes independent Gaussian coordinates after whitening. This is a
     local linear diagnostic, not a global uniqueness certificate.
     """
-    microphones = np.asarray(microphone_positions_2d_m, dtype=float)
+    microphones = np.asarray(microphone_positions_m, dtype=float)
     jacobian = np.asarray(whitened_jacobian, dtype=float)
-    if microphones.ndim != 2 or microphones.shape[1] != 2 or len(microphones) < 3:
-        raise ValueError("microphone_positions_2d_m must have shape (N >= 3, 2)")
+    if microphones.ndim != 2 or microphones.shape[1] not in (2, 3) or len(microphones) < 3:
+        raise ValueError("microphone positions must have shape (N >= 3, 2 or 3)")
     columns = microphones.size
     if jacobian.ndim != 2 or jacobian.shape[1] < columns:
-        raise ValueError("jacobian must start with all planar microphone coordinates")
+        raise ValueError("jacobian must start with all microphone coordinates")
     if not np.all(np.isfinite(microphones)) or not np.all(np.isfinite(jacobian)):
         raise ValueError("geometry and jacobian must be finite")
     centered = microphones - np.mean(microphones, axis=0)
     radius = float(np.sqrt(np.mean(np.sum(centered**2, axis=1))))
-    gauge = np.zeros((columns, 3))
-    gauge[0::2, 0] = 1.0
-    gauge[1::2, 1] = 1.0
-    gauge[0::2, 2] = -centered[:, 1]
-    gauge[1::2, 2] = centered[:, 0]
+    dimension = microphones.shape[1]
+    gauge = np.zeros((columns, dimension + dimension * (dimension - 1) // 2))
+    for axis in range(dimension):
+        gauge[axis::dimension, axis] = 1.0
+    column = dimension
+    for axis_a in range(dimension):
+        for axis_b in range(axis_a + 1, dimension):
+            gauge[axis_a::dimension, column] = -centered[:, axis_b]
+            gauge[axis_b::dimension, column] = centered[:, axis_a]
+            column += 1
     gauge_u, gauge_s, _ = np.linalg.svd(gauge, full_matrices=True)
     gauge_rank = int(np.sum(gauge_s > 1e-12 * gauge_s[0]))
     if coordinate_tangent is None:
@@ -183,7 +188,7 @@ def planar_noise_sensitivity(
         else:
             inflation = float("inf")
         uncertainty *= inflation
-    return PlanarNoiseSensitivity(
+    return GeometryNoiseSensitivity(
         weakest_microphone_rms_std_m=uncertainty,
         relative_weakest_std=uncertainty / radius if radius > 0.0 else float("inf"),
         observable_rank=rank,
@@ -192,4 +197,28 @@ def planar_noise_sensitivity(
         reduced_chi_square=reduced_chi_square,
         fit_p_value=fit_p_value,
         noise_scale_inflation=inflation,
+    )
+
+
+# Preserve the existing planar diagnostic type/import surface.
+PlanarNoiseSensitivity = GeometryNoiseSensitivity
+
+
+def planar_noise_sensitivity(
+    whitened_jacobian: np.ndarray,
+    microphone_positions_2d_m: np.ndarray,
+    *,
+    whitened_residual: np.ndarray | None = None,
+    coordinate_tangent: np.ndarray | None = None,
+) -> PlanarNoiseSensitivity:
+    if (
+        np.asarray(microphone_positions_2d_m).ndim != 2
+        or np.asarray(microphone_positions_2d_m).shape[1] != 2
+    ):
+        raise ValueError("microphone_positions_2d_m must have shape (N >= 3, 2)")
+    return geometry_noise_sensitivity(
+        whitened_jacobian,
+        microphone_positions_2d_m,
+        whitened_residual=whitened_residual,
+        coordinate_tangent=coordinate_tangent,
     )

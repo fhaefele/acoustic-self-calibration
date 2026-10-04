@@ -25,7 +25,7 @@ from acoustic_self_calibration.measurements import reference_star_from_arrivals
 from acoustic_self_calibration.pipeline import calibrate_audio
 from acoustic_self_calibration.simulation import render_moving_source
 from acoustic_self_calibration.stratified.solver import calibrate_planar_tdoa, calibrate_tdoa
-from acoustic_self_calibration.stratified.structured import refine_structured
+from acoustic_self_calibration.stratified.structured import apply_array_configuration
 from acoustic_self_calibration.wav import calibrate_wav
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -242,8 +242,8 @@ def run_case(case):
                     angle_constraint=config.angle_constraint(),
                     source_half_space_sign=1,
                 )
-                if config.name in {"cross", "t", "grid"} and config.angle_constraint() is not None:
-                    calibration = refine_structured(
+                if config.name in {"cross", "t", "grid"}:
+                    calibration = apply_array_configuration(
                         calibration, measurements, config, speed_of_sound=343.0
                     )
             times = scene.event_times_s

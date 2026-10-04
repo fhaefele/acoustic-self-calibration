@@ -41,6 +41,7 @@ class AudioCalibrationResult:
     refinement_diagnostics: RefinementDiagnostics | None = None
     array_configuration: ArrayConfiguration | None = None
     coordinate_frame: MicrophoneFrame | None = None
+    timing_uncertainty_model: Literal["confidence", "waveform"] = "confidence"
 
     @property
     def event_times_s(self) -> np.ndarray:
@@ -273,6 +274,22 @@ def calibrate_audio(
             angle_constraint=angle_constraint,
             source_half_space_sign=1 if source_region == "same_side" else None,
         )
+    if model == "general_3d" and timing_uncertainty == "waveform":
+        spatial_std = calibration.diagnostics.spatial_relative_std
+        if spatial_std is not None:
+            weak = calibration.status == "solved" and spatial_std > 0.05
+            calibration = replace(
+                calibration,
+                status="weakly_identified" if weak else calibration.status,
+                diagnostics=replace(
+                    calibration.diagnostics,
+                    spatial_relative_std_limit=0.05,
+                    rejection_reasons=(
+                        *calibration.diagnostics.rejection_reasons,
+                        *(("spatial_recorded_waveform_noise_sensitive",) if weak else ()),
+                    ),
+                ),
+            )
     pre_refinement = None
     refinement_diagnostics = None
     structured = array_configuration is not None and array_configuration.name in {
@@ -291,36 +308,16 @@ def calibrate_audio(
             improvement_tolerance=refinement_improvement_tolerance,
         )
 
-    if (
-        structured
-        and array_configuration is not None
-        and array_configuration.name in {"cross", "t"}
-        and array_configuration.angle_deg is None
-    ):
-        assert isinstance(calibration, PlanarCalibrationResult)
-        calibration = replace(
-            calibration,
-            status="degenerate",
-            microphone_positions_m=None,
-            source_representative_positions_m=None,
-            source_projected_positions_m=None,
-            source_unsigned_heights_m=None,
-            source_height_sign_known=None,
-            continuous_ambiguity_dimension=1,
-            diagnostics=replace(
-                calibration.diagnostics,
-                rejection_reasons=(
-                    *calibration.diagnostics.rejection_reasons,
-                    "unknown_two_arm_angle_metric_family",
-                ),
-            ),
-        )
-    if structured and calibration.microphone_positions_m is not None:
-        from .stratified.structured import refine_structured
+    if structured and array_configuration is not None:
+        from .stratified.structured import apply_array_configuration
 
         assert isinstance(calibration, PlanarCalibrationResult)
-        pre_refinement = calibration
-        calibration = refine_structured(
+        if (
+            calibration.microphone_positions_m is not None
+            and array_configuration.metric_ambiguity_reason() is None
+        ):
+            pre_refinement = calibration
+        calibration = apply_array_configuration(
             calibration,
             measurements,
             array_configuration,
@@ -385,4 +382,5 @@ def calibrate_audio(
         refinement_diagnostics=refinement_diagnostics,
         array_configuration=array_configuration,
         coordinate_frame=frame,
+        timing_uncertainty_model=timing_uncertainty,
     )

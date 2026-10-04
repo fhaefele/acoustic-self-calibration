@@ -33,7 +33,7 @@ def _output_paths(output_prefix: str | Path) -> CalibrationOutputPaths:
     )
 
 
-def _json_array(value: np.ndarray | None) -> Any:
+def _json_array(value: np.ndarray | float | None) -> Any:
     if value is None:
         return None
     array = np.asarray(value)
@@ -229,6 +229,7 @@ def calibration_result_to_dict(
             "speed_of_sound_mps": result.speed_of_sound_mps,
             "rms_tdoa_residual_s": calibration.tdoa_rms_s,
             "temporal_tracking_enabled": result.temporal_tracking_enabled,
+            "timing_uncertainty_model": result.timing_uncertainty_model,
             "refinement": _refinement_dict(result),
         },
         "measurements": {
@@ -271,6 +272,19 @@ def calibration_result_to_dict(
             "extra_microphones_completed": diagnostics.extra_microphones_completed,
             "extra_microphone_max_inlier_rms_m": (diagnostics.extra_microphone_max_inlier_rms_m),
             "rejection_reasons": list(diagnostics.rejection_reasons),
+            "spatial_noise_sensitivity": {
+                "microphone_rms_std_m": _json_array(diagnostics.spatial_microphone_rms_std_m),
+                "relative_std": _json_array(diagnostics.spatial_relative_std),
+                "observable_rank": diagnostics.spatial_observable_rank,
+                "parameter_count": diagnostics.spatial_parameter_count,
+                "relative_std_limit": diagnostics.spatial_relative_std_limit,
+            },
+            "planar_noise_sensitivity": {
+                "microphone_rms_std_m": _json_array(diagnostics.planar_microphone_rms_std_m),
+                "relative_std": _json_array(diagnostics.planar_relative_std),
+                "fit_p_value": diagnostics.planar_fit_p_value,
+                "reduced_chi_square": _json_array(diagnostics.planar_reduced_chi_square),
+            },
             "validation_unresolved_event_ids": list(diagnostics.validation_unresolved_event_ids),
             "selected_hypothesis": selected,
             "ambiguity": {

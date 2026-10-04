@@ -84,10 +84,16 @@ def _channel_event_candidates(
     minimum_gap_samples: int,
     relative_prominence: float,
 ) -> tuple[np.ndarray, np.ndarray]:
+    values = np.asarray(energy, dtype=float)
+    background = float(np.median(values))
+    # The median/MAD are recorded-channel statistics. Sparse broadband calls
+    # do not set the noise floor; no clean signal or expected call count is used.
+    background_sigma = 1.4826 * float(np.median(np.abs(values - background)))
     peaks, properties = find_peaks(
-        np.asarray(energy, dtype=float),
+        values,
         distance=max(1, int(minimum_gap_samples)),
         prominence=0.0,
+        height=background + 8.0 * background_sigma,
     )
     prominence = np.asarray(properties["prominences"], dtype=float)
     if prominence.size == 0:
@@ -111,8 +117,8 @@ def detect_transient_events(
 
     If event_channel is absent, every channel is scored independently and the channel
     with the largest summed retained-event prominence is selected. Thresholds are
-    relative to each channel's strongest event, so integer/floating WAV scaling does
-    not change the selected event samples.
+    relative to each channel's strongest event and robust recorded energy noise
+    floor, so integer/floating WAV scaling does not change selected event samples.
     """
     values = _validate_audio(audio, sample_rate)
     if smooth_s <= 0.0:
